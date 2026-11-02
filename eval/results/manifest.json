@@ -1,0 +1,242 @@
+{
+  "project": "rag-ablation",
+  "model": "deepseek-chat",
+  "served_model": "deepseek-flash",
+  "base_url": "https://api.deepseek.com",
+  "temperature": 0.0,
+  "prices": {
+    "price_in_usd_per_mtok": 0.15,
+    "price_out_usd_per_mtok": 0.6,
+    "usd_cny": 7.1,
+    "note": "DeepSeek 官方价目表已只列 deepseek-flash / deepseek-v4-pro；deepseek-chat 为别名，实测由 deepseek-flash 承接，按 Flash off-peak cache-miss 价计"
+  },
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "expected_per_file": 100,
+  "git_sha": "no-git",
+  "started_at": "2026-11-02T20:46:33",
+  "finished_at": "2026-11-02T21:14:43",
+  "runs": [
+    {
+      "tag": "dense_rr-off_rw-off",
+      "seed": 42,
+      "file": "eval\\results\\dense_rr-off_rw-off_seed42.jsonl",
+      "n": 100,
+      "cost_cny": 0.390837,
+      "prompt_tokens": 282241,
+      "completion_tokens": 21186
+    },
+    {
+      "tag": "dense_rr-off_rw-off",
+      "seed": 43,
+      "file": "eval\\results\\dense_rr-off_rw-off_seed43.jsonl",
+      "n": 100,
+      "cost_cny": 0.384937,
+      "prompt_tokens": 277459,
+      "completion_tokens": 20996
+    },
+    {
+      "tag": "dense_rr-off_rw-off",
+      "seed": 44,
+      "file": "eval\\results\\dense_rr-off_rw-off_seed44.jsonl",
+      "n": 100,
+      "cost_cny": 0.391242,
+      "prompt_tokens": 282039,
+      "completion_tokens": 21332
+    },
+    {
+      "tag": "dense_rr-off_rw-on",
+      "seed": 42,
+      "file": "eval\\results\\dense_rr-off_rw-on_seed42.jsonl",
+      "n": 100,
+      "cost_cny": 0.434062,
+      "prompt_tokens": 278478,
+      "completion_tokens": 32274
+    },
+    {
+      "tag": "dense_rr-off_rw-on",
+      "seed": 43,
+      "file": "eval\\results\\dense_rr-off_rw-on_seed43.jsonl",
+      "n": 100,
+      "cost_cny": 0.46414,
+      "prompt_tokens": 299957,
+      "completion_tokens": 33963
+    },
+    {
+      "tag": "dense_rr-off_rw-on",
+      "seed": 44,
+      "file": "eval\\results\\dense_rr-off_rw-on_seed44.jsonl",
+      "n": 100,
+      "cost_cny": 0.450004,
+      "prompt_tokens": 288464,
+      "completion_tokens": 33519
+    },
+    {
+      "tag": "dense_rr-on_rw-off",
+      "seed": 42,
+      "file": "eval\\results\\dense_rr-on_rw-off_seed42.jsonl",
+      "n": 100,
+      "cost_cny": 0.369985,
+      "prompt_tokens": 269039,
+      "completion_tokens": 19592
+    },
+    {
+      "tag": "dense_rr-on_rw-off",
+      "seed": 43,
+      "file": "eval\\results\\dense_rr-on_rw-off_seed43.jsonl",
+      "n": 100,
+      "cost_cny": 0.356691,
+      "prompt_tokens": 258939,
+      "completion_tokens": 18996
+    },
+    {
+      "tag": "dense_rr-on_rw-off",
+      "seed": 44,
+      "file": "eval\\results\\dense_rr-on_rw-off_seed44.jsonl",
+      "n": 100,
+      "cost_cny": 0.356258,
+      "prompt_tokens": 258841,
+      "completion_tokens": 18919
+    },
+    {
+      "tag": "dense_rr-on_rw-on",
+      "seed": 42,
+      "file": "eval\\results\\dense_rr-on_rw-on_seed42.jsonl",
+      "n": 100,
+      "cost_cny": 0.427364,
+      "prompt_tokens": 275011,
+      "completion_tokens": 31568
+    },
+    {
+      "tag": "dense_rr-on_rw-on",
+      "seed": 43,
+      "file": "eval\\results\\dense_rr-on_rw-on_seed43.jsonl",
+      "n": 100,
+      "cost_cny": 0.398814,
+      "prompt_tokens": 253857,
+      "completion_tokens": 30154
+    },
+    {
+      "tag": "dense_rr-on_rw-on",
+      "seed": 44,
+      "file": "eval\\results\\dense_rr-on_rw-on_seed44.jsonl",
+      "n": 100,
+      "cost_cny": 0.420986,
+      "prompt_tokens": 269569,
+      "completion_tokens": 31430
+    },
+    {
+      "tag": "hybrid_rr-off_rw-off",
+      "seed": 42,
+      "file": "eval\\results\\hybrid_rr-off_rw-off_seed42.jsonl",
+      "n": 100,
+      "cost_cny": 0.318428,
+      "prompt_tokens": 229405,
+      "completion_tokens": 17397
+    },
+    {
+      "tag": "hybrid_rr-off_rw-off",
+      "seed": 43,
+      "file": "eval\\results\\hybrid_rr-off_rw-off_seed43.jsonl",
+      "n": 100,
+      "cost_cny": 0.31024,
+      "prompt_tokens": 222675,
+      "completion_tokens": 17158
+    },
+    {
+      "tag": "hybrid_rr-off_rw-off",
+      "seed": 44,
+      "file": "eval\\results\\hybrid_rr-off_rw-off_seed44.jsonl",
+      "n": 100,
+      "cost_cny": 0.306196,
+      "prompt_tokens": 220256,
+      "completion_tokens": 16812
+    },
+    {
+      "tag": "hybrid_rr-off_rw-on",
+      "seed": 42,
+      "file": "eval\\results\\hybrid_rr-off_rw-on_seed42.jsonl",
+      "n": 100,
+      "cost_cny": 0.404327,
+      "prompt_tokens": 255811,
+      "completion_tokens": 30959
+    },
+    {
+      "tag": "hybrid_rr-off_rw-on",
+      "seed": 43,
+      "file": "eval\\results\\hybrid_rr-off_rw-on_seed43.jsonl",
+      "n": 100,
+      "cost_cny": 0.374551,
+      "prompt_tokens": 233679,
+      "completion_tokens": 29503
+    },
+    {
+      "tag": "hybrid_rr-off_rw-on",
+      "seed": 44,
+      "file": "eval\\results\\hybrid_rr-off_rw-on_seed44.jsonl",
+      "n": 100,
+      "cost_cny": 0.378021,
+      "prompt_tokens": 236411,
+      "completion_tokens": 29635
+    },
+    {
+      "tag": "hybrid_rr-on_rw-off",
+      "seed": 42,
+      "file": "eval\\results\\hybrid_rr-on_rw-off_seed42.jsonl",
+      "n": 100,
+      "cost_cny": 0.346205,
+      "prompt_tokens": 251271,
+      "completion_tokens": 18452
+    },
+    {
+      "tag": "hybrid_rr-on_rw-off",
+      "seed": 43,
+      "file": "eval\\results\\hybrid_rr-on_rw-off_seed43.jsonl",
+      "n": 100,
+      "cost_cny": 0.349475,
+      "prompt_tokens": 253331,
+      "completion_tokens": 18704
+    },
+    {
+      "tag": "hybrid_rr-on_rw-off",
+      "seed": 44,
+      "file": "eval\\results\\hybrid_rr-on_rw-off_seed44.jsonl",
+      "n": 100,
+      "cost_cny": 0.352279,
+      "prompt_tokens": 255773,
+      "completion_tokens": 18751
+    },
+    {
+      "tag": "hybrid_rr-on_rw-on",
+      "seed": 42,
+      "file": "eval\\results\\hybrid_rr-on_rw-on_seed42.jsonl",
+      "n": 100,
+      "cost_cny": 0.416106,
+      "prompt_tokens": 266731,
+      "completion_tokens": 30996
+    },
+    {
+      "tag": "hybrid_rr-on_rw-on",
+      "seed": 43,
+      "file": "eval\\results\\hybrid_rr-on_rw-on_seed43.jsonl",
+      "n": 100,
+      "cost_cny": 0.404015,
+      "prompt_tokens": 257880,
+      "completion_tokens": 30369
+    },
+    {
+      "tag": "hybrid_rr-on_rw-on",
+      "seed": 44,
+      "file": "eval\\results\\hybrid_rr-on_rw-on_seed44.jsonl",
+      "n": 100,
+      "cost_cny": 0.417956,
+      "prompt_tokens": 267769,
+      "completion_tokens": 31170
+    }
+  ],
+  "total_cost_cny": 9.2231,
+  "total_tasks": 2400
+}
