@@ -68,6 +68,13 @@ def main() -> int:
     if not args.mock:
         st = retrievers.warmup()
         print(f"[models] {st}")
+        # 静默降级会污染实验（dense 变空、rerank 变原序），所以这里直接中止。
+        if not st.get("embedding_ok"):
+            print(f"[abort] 嵌入模型加载失败，dense/hybrid 会全空，不跑：{st.get('embedding_error')}")
+            return 3
+        if args.rerank == "on" and not st.get("rerank_ok"):
+            print(f"[abort] 重排模型加载失败，rerank=on 会退化为原序，不跑：{st.get('rerank_error')}")
+            return 3
         ok, msg = llm.preflight()
         if not ok:
             print(f"[abort] 预检失败（余额/鉴权/网络），未消耗任何任务：{msg}")

@@ -61,6 +61,10 @@ eval/
    实际账单可能比 `manifest.json` 高不到 2 倍；`manifest.json → prices` 里写死了所用单价。
 4. **重排模型不可用时静默降级为「原序截断」**，检索不可用时降级为空结果（HANDOVER 5.1 要求不中断），
    `run.py` 启动会打印 `[models]` 状态，`manifest` 里不含该项，验收前请确认 `rerank_ok: true`。
+5. **API 级故障已改为 fail-fast（2026-11-02 事故后）**：余额不足（402）曾被 `except Exception` 当成
+   `parse_error` 吞掉，导致 5 个结果文件里 2400+ 条是静默垃圾。现在 `llm.LLMError` 上抛、
+   `run.py` 开跑前做一次 `preflight()` 真实调用、失败自动删除半份文件并以退出码 3 中止、
+   `check.py` 断言结果中不得出现 `parse_error` / `api_error`。**跑批前先看余额**。
 
 ## 成本
 

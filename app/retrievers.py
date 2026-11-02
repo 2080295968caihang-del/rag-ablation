@@ -17,6 +17,12 @@ EMB_MODEL = os.getenv("EMB_MODEL", "BAAI/bge-small-en-v1.5")
 RERANK_MODEL = os.getenv("RERANK_MODEL", "Xenova/ms-marco-MiniLM-L-6-v2")
 RRF_K = 60
 
+# 模型缓存固定在项目内 models/。fastembed 默认落在 %TEMP%/fastembed_cache，
+# 临时目录被清掉后 warmup 会失败并把 dense/rerank 静默降级 —— 那会污染实验，
+# 所以缓存跟着代码走。需要改位置时用 FASTEMBED_CACHE_PATH 覆盖。
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CACHE_DIR = os.getenv("FASTEMBED_CACHE_PATH") or os.path.join(_ROOT, "models")
+
 _LOCK = threading.Lock()
 _EMB = None
 _CE = None
@@ -38,7 +44,7 @@ def _get_emb():
             try:
                 from fastembed import TextEmbedding
 
-                _EMB = TextEmbedding(model_name=EMB_MODEL)
+                _EMB = TextEmbedding(model_name=EMB_MODEL, cache_dir=CACHE_DIR)
             except Exception as e:  # noqa: BLE001
                 _EMB_ERR = f"{type(e).__name__}: {e}"
         return _EMB
@@ -51,7 +57,7 @@ def _get_ce():
             try:
                 from fastembed.rerank.cross_encoder import TextCrossEncoder
 
-                _CE = TextCrossEncoder(model_name=RERANK_MODEL)
+                _CE = TextCrossEncoder(model_name=RERANK_MODEL, cache_dir=CACHE_DIR)
             except Exception as e:  # noqa: BLE001
                 _CE_ERR = f"{type(e).__name__}: {e}"
         return _CE
@@ -67,6 +73,7 @@ def warmup() -> dict:
         "rerank_model": RERANK_MODEL,
         "rerank_ok": ce is not None,
         "rerank_error": _CE_ERR,
+        "cache_dir": CACHE_DIR,
     }
 
 
