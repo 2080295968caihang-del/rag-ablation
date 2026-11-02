@@ -31,6 +31,14 @@ def result_path(tag: str, seed: int) -> Path:
     return RESULTS / f"{tag}_seed{seed}.jsonl"
 
 
+def set_results(p) -> Path:
+    """切换结果目录（600 条扩样本实验写到 results_600/，不污染 100 条的结果）。"""
+    global RESULTS
+    RESULTS = Path(p)
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    return RESULTS
+
+
 def load_samples(path: Path = DATA) -> list[dict]:
     with path.open(encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]

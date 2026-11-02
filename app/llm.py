@@ -36,13 +36,26 @@ def _client():
         return _CLIENT
 
 
+class LLMError(RuntimeError):
+    """API 级失败（余额不足 / 鉴权 / 限流耗尽）。必须向上抛，不许被当成解析失败吞掉。"""
+
+    def __init__(self, msg: str, status=None):
+        super().__init__(msg)
+        self.status = status
+
+
+def _status_of(exc: Exception):
+    s = getattr(exc, "status_code", None)
+    if s is None:
+        s = getattr(getattr(exc, "response", None), "status_code", None)
+    return s
+
+
 def _retryable(exc: Exception) -> bool:
     name = type(exc).__name__.lower()
     if "timeout" in name or "connection" in name or "ratelimit" in name:
         return True
-    status = getattr(exc, "status_code", None)
-    if status is None:
-        status = getattr(getattr(exc, "response", None), "status_code", None)
+    status = _status_of(exc)
     return status in (429, 500, 502, 503, 504) if isinstance(status, int) else False
 
 
@@ -98,6 +111,15 @@ def chat(messages, temperature: float = 0.0, max_retries: int = 3) -> dict:
             with _LOCK:
                 _LEDGER["failures"] += 1
             if attempt >= max_retries or not _retryable(e):
-                raise
+                raise LLMError(f"{type(e).__name__}: {e}", status=_status_of(e)) from e
             time.sleep(delays[min(attempt, len(delays) - 1)])
-    raise last  # pragma: no cover
+    raise LLMError(f"{type(last).__name__}: {last}", status=_status_of(last))  # pragma: no cover
+
+
+def preflight() -> tuple[bool, str]:
+    """跑批前的一次真实调用。余额不足 / key 失效当场暴露，别让 2400 条任务白跑。"""
+    try:
+        chat([{"role": "user", "content": "ping"}], temperature=0.0, max_retries=0)
+        return True, "ok"
+    except Exception as e:  # noqa: BLE001
+        return False, f"{type(e).__name__}: {e}"

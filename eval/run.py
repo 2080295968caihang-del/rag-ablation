@@ -66,6 +66,10 @@ def main() -> int:
     if not args.mock:
         st = retrievers.warmup()
         print(f"[models] {st}")
+        ok, msg = llm.preflight()
+        if not ok:
+            print(f"[abort] 预检失败（余额/鉴权/网络），未消耗任何任务：{msg}")
+            return 3
 
     llm.ledger_reset()
     t0 = time.time()
@@ -92,6 +96,11 @@ def main() -> int:
                 done += 1
                 print(f"[{done}/{len(samples)}] {rec['qid']} {rec['terminated_by']} "
                       f"ans={rec['answer'][:40]!r} calls={rec['tool_calls']}", flush=True)
+    except llm.LLMError as e:
+        fh.close()
+        out.unlink(missing_ok=True)
+        print(f"[abort] API 级失败，已删除半份结果 {out.name}，本组需重跑：{e}")
+        return 3
     finally:
         fh.close()
 

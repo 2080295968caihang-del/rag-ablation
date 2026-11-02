@@ -25,11 +25,15 @@ def check(cond: bool, msg: str) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--allow-partial", action="store_true")
+    ap.add_argument("--data", default=str(common.DATA))
+    ap.add_argument("--results", default="")
     args = ap.parse_args()
+    common.set_results(args.results or (common.ROOT / "eval" / "results"))
 
     # ---- 1. 数据集 ----
-    samples = common.load_samples()
-    check(len(samples) == 100, f"数据集 100 条（实测 {len(samples)}）")
+    samples = common.load_samples(Path(args.data))
+    n_s = len(samples)
+    check(n_s >= 100, f"数据集条数 {n_s}（≥100）")
     qids = [s["qid"] for s in samples]
     check(len(set(qids)) == len(qids), "qid 无重复")
     bad_gold = [s["qid"] for s in samples if len(s["gold_pids"]) < 2]
@@ -53,7 +57,7 @@ def main() -> int:
             if not recs:
                 missing.append(f"{tag}@{seed}")
                 continue
-            if len(recs) != 100:
+            if len(recs) != n_s:
                 wrong_n.append(f"{tag}@{seed}:{len(recs)}")
             if sorted(r["qid"] for r in recs) != sorted(qids):
                 wrong_qid.append(f"{tag}@{seed}")
@@ -61,8 +65,17 @@ def main() -> int:
         check(True, f"[partial] 已有 {len(need)*len(common.SEEDS)-len(missing)}/{len(need)*len(common.SEEDS)} 个结果文件")
     else:
         check(not missing, f"24 个结果文件齐（缺 {missing[:3]} 共 {len(missing)}）")
-        check(not wrong_n, f"每文件 100 行（异常 {wrong_n[:3]}）")
+        check(not wrong_n, f"每文件 {n_s} 行（异常 {wrong_n[:3]}）")
         check(not wrong_qid, f"qid 与数据集一致（异常 {wrong_qid[:3]}）")
+
+    # 完整性：不许有 parse_error / api_error（402 曾被当成 parse_error 吞掉，污染过一整批）
+    bad_term = []
+    for p in sorted(common.RESULTS.glob("*_seed*.jsonl")):
+        for r in common.load_records(p):
+            if r.get("terminated_by") in ("parse_error", "api_error"):
+                bad_term.append(f"{p.name}:{r.get('qid')}")
+                break
+    check(not bad_term, f"结果无 parse_error/api_error（异常 {bad_term[:3]} 共 {len(bad_term)}）")
 
     # ---- 3. manifest ----
     mp = common.RESULTS / "manifest.json"
@@ -73,7 +86,8 @@ def main() -> int:
         check(m.get("seeds") == list(common.SEEDS), f"manifest seeds={m.get('seeds')}")
         check(float(m.get("total_cost_cny", 0)) > 0, f"manifest 总成本>0（{m.get('total_cost_cny')}）")
         if not args.allow_partial:
-            check(m.get("total_tasks") == 2400, f"manifest total_tasks=2400（{m.get('total_tasks')}）")
+            want = 8 * len(common.SEEDS) * n_s
+            check(m.get("total_tasks") == want, f"manifest total_tasks={want}（{m.get('total_tasks')}）")
     else:
         check(False, "manifest.json 存在（缺失）")
 

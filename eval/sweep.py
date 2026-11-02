@@ -24,7 +24,7 @@ def n_lines(p: Path) -> int:
         return sum(1 for line in f if line.strip())
 
 
-def write_manifest(seeds, tags, started_at, expect_per_file: int) -> dict:
+def write_manifest(seeds, tags, started_at, expect_per_file: int, dataset: str = "") -> dict:
     import datetime as dt
 
     from app import llm
@@ -64,6 +64,7 @@ def write_manifest(seeds, tags, started_at, expect_per_file: int) -> dict:
                     "实测由 deepseek-flash 承接，按 Flash off-peak cache-miss 价计",
         },
         "seeds": list(seeds),
+        "dataset": dataset,
         "expected_per_file": expect_per_file,
         "git_sha": common.git_sha(),
         "started_at": started_at,
@@ -87,8 +88,12 @@ def main() -> int:
     ap.add_argument("--gold", action="store_true")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--mock", action="store_true")
+    ap.add_argument("--data", default=str(common.DATA))
+    ap.add_argument("--results", default="", help="结果目录，默认 eval/results")
     args = ap.parse_args()
 
+    common.set_results(args.results or (common.ROOT / "eval" / "results"))
+    n_samples = len(common.load_samples(Path(args.data)))
     seeds = [int(s) for s in args.seeds.split(",") if s.strip()]
     only = set(x.strip() for x in args.only.split(",") if x.strip())
     combos = [
@@ -98,7 +103,7 @@ def main() -> int:
         for rw in common.REWRITES
         if not only or r in only
     ]
-    expect = args.limit or 100
+    expect = args.limit or n_samples
     started_at = time.strftime("%Y-%m-%dT%H:%M:%S")
     tags = [common.tag_of(r, rr, rw, args.gold) for r, rr, rw in combos]
 
@@ -115,10 +120,10 @@ def main() -> int:
                 sys.executable, str(common.ROOT / "eval" / "run.py"),
                 "--retriever", r, "--rerank", "on" if rr else "off",
                 "--rewrite", "on" if rw else "off", "--seed", str(seed),
-                "--workers", str(args.workers),
+                "--workers", str(args.workers), "--data", args.data, "--out", str(p),
             ]
             if args.limit:
-                cmd += ["--limit", str(args.limit), "--out", str(p)]
+                cmd += ["--limit", str(args.limit)]
             if args.gold:
                 cmd += ["--gold"]
             print(f"[run] {tag} seed={seed}", flush=True)
@@ -130,7 +135,7 @@ def main() -> int:
     if args.limit:
         print(f"[smoke] 跳过 manifest 写入，结果在 {common.RESULTS / '_smoke'}")
         return 0
-    m = write_manifest(seeds, tags, started_at, expect)
+    m = write_manifest(seeds, tags, started_at, expect, dataset=str(Path(args.data)))
     print(f"[manifest] tasks={m['total_tasks']} cost=¥{m['total_cost_cny']} "
           f"elapsed={(time.time()-t0)/60:.1f}min")
     return 0

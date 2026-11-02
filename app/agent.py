@@ -97,6 +97,8 @@ def run_task(sample: dict, cfg: dict) -> dict:
             try:
                 r = llm.chat(_messages(question, context, []))
                 d = _parse(r["text"]) or {"action": "answer", "answer": "", "citations": []}
+            except llm.LLMError:
+                raise
             except Exception:  # noqa: BLE001
                 d = {"action": "answer", "answer": "", "citations": []}
         answer = str(d.get("answer") or "")
@@ -138,6 +140,8 @@ def run_task(sample: dict, cfg: dict) -> dict:
                             + [{"role": "user", "content": "That was not valid JSON. Repeat with strict JSON only."}]
                         )
                         d = _parse(r["text"])
+                except llm.LLMError:
+                    raise
                 except Exception:  # noqa: BLE001
                     d = None
             if d is None:
@@ -168,6 +172,8 @@ def run_task(sample: dict, cfg: dict) -> dict:
                         d2 = _parse(r["text"]) or {}
                         answer = str(d2.get("answer") or "")
                         citations = list(d2.get("citations") or [])
+                    except llm.LLMError:
+                        raise
                     except Exception:  # noqa: BLE001
                         pass
                 break

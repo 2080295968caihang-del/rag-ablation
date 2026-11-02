@@ -163,7 +163,16 @@ def share_txt(cnt: dict, tot: int, only_top: bool = False) -> str:
 
 
 def main() -> int:
-    samples = {s["qid"]: s for s in common.load_samples()}
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--data", default=str(common.DATA))
+    ap.add_argument("--results", default="", help="结果目录，默认 eval/results")
+    ap.add_argument("--out", default="", help="summary 输出路径，默认 <results>/summary.md")
+    args = ap.parse_args()
+    common.set_results(args.results or (common.ROOT / "eval" / "results"))
+
+    samples = {s["qid"]: s for s in common.load_samples(Path(args.data))}
     seeds = list(common.SEEDS)
     combos = [(r, rr, rw) for r in common.RETRIEVERS for rr in common.RERANKS for rw in common.REWRITES]
 
@@ -378,7 +387,7 @@ def main() -> int:
             lines.extend(alt)
             lines.append("")
 
-    out = common.RESULTS / "summary.md"
+    out = Path(args.out) if args.out else common.RESULTS / "summary.md"
     out.write_text("\n".join(lines), encoding="utf-8")
     print(f"[ok] {out}")
     return 0

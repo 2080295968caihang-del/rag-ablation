@@ -226,5 +226,7 @@ def rewrite(query: str) -> list[str]:
             if q.lower() != query.lower() and q not in out:
                 out.append(q)
         return out[:3]
+    except llm.LLMError:
+        raise  # API 级失败必须上抛：降级成单查询会静默改写"改写组"的语义
     except Exception:  # noqa: BLE001
         return [query]

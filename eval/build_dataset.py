@@ -64,9 +64,17 @@ def load_validation():
 
 
 def main() -> int:
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--n", type=int, default=100)
+    ap.add_argument("--out", default=str(OUT))
+    args = ap.parse_args()
+    out = Path(args.out)
+
     ds = load_validation()
-    ds = ds.shuffle(seed=42).select(range(100))
-    OUT.parent.mkdir(parents=True, exist_ok=True)
+    ds = ds.shuffle(seed=42).select(range(args.n))
+    out.parent.mkdir(parents=True, exist_ok=True)
 
     rows = []
     for ex in ds:
@@ -78,12 +86,12 @@ def main() -> int:
         rows.append(row)
     small = [r["qid"] for r in rows if len(r["passages"]) < 30]
 
-    with OUT.open("w", encoding="utf-8") as f:
+    with out.open("w", encoding="utf-8") as f:
         for r in rows:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
     n_pass = sum(len(r["passages"]) for r in rows)
-    print(f"[ok] {OUT}  samples={len(rows)}  passages={n_pass}  "
+    print(f"[ok] {out}  samples={len(rows)}  passages={n_pass}  "
           f"gold/sample={sum(len(r['gold_pids']) for r in rows)/len(rows):.2f}")
     print(f"[warn] passage<30 的样本 {len(small)}/{len(rows)}，最小 "
           f"{min(len(r['passages']) for r in rows)} 条（distractor 含单句段落，非构造错误）")
