@@ -20,7 +20,9 @@ from eval import common  # noqa: E402
 try:
     from dotenv import load_dotenv
 
-    load_dotenv(common.ROOT / ".env")
+    # override=True：让项目内 .env 覆盖 shell/系统里的同名变量，
+    # 否则外部注入的旧 DEEPSEEK_API_KEY 会一直生效，改 .env 看起来“没反应”。
+    load_dotenv(common.ROOT / ".env", override=True)
 except Exception:  # noqa: BLE001
     pass
 
