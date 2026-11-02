@@ -116,18 +116,26 @@ def main() -> int:
             if not args.force and n_lines(p) >= expect:
                 print(f"[skip] {tag} seed={seed} ({n_lines(p)} rows)")
                 continue
+            if args.force:
+                p.unlink(missing_ok=True)
             cmd = [
                 sys.executable, str(common.ROOT / "eval" / "run.py"),
                 "--retriever", r, "--rerank", "on" if rr else "off",
                 "--rewrite", "on" if rw else "off", "--seed", str(seed),
                 "--workers", str(args.workers), "--data", args.data, "--out", str(p),
             ]
+            if args.force:
+                cmd += ["--no-resume"]
             if args.limit:
                 cmd += ["--limit", str(args.limit)]
             if args.gold:
                 cmd += ["--gold"]
             print(f"[run] {tag} seed={seed}", flush=True)
             rc = subprocess.run(cmd, cwd=common.ROOT).returncode
+            if rc == 4:
+                print(f"[pause] {tag} seed={seed} 已按 STOP 暂停，sweep 停止；"
+                      f"删掉 STOP 后重跑本命令即从断点继续", flush=True)
+                return 4
             if rc != 0:
                 print(f"[fail] {tag} seed={seed} rc={rc}", flush=True)
                 return rc

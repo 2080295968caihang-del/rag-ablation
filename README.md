@@ -24,6 +24,32 @@ python eval/check.py                                # 全绿才算完成
 # -> eval/results/hybrid_rr-on_rw-on_seed43.jsonl（100 行）
 ```
 
+## 暂停 / 续跑（关机前用）
+
+**暂停**（任意时刻，不丢已跑数据）：
+
+```bash
+touch STOP          # 在项目根目录建 STOP 文件
+```
+
+- `run.py` 在**每批任务边界**检查 `STOP`：本批（workers 条）跑完、结果落盘后才停，退出码 4。
+- `sweep.py` 看到退出码 4 立即停止整个 sweep，后续组合不启动。
+- 已写的结果**不删、不覆盖**；半份文件保留。
+
+**续跑**（删掉 STOP，原命令照跑）：
+
+```bash
+rm STOP
+./.venv/Scripts/python.exe eval/sweep.py --seeds 42,43 --workers 4 \
+  --data data/hotpot_dev_600.jsonl --results eval/results_600
+```
+
+- 已满 600 行的文件直接 `[skip]`。
+- 半份文件 `[resume] 已有 N 条，跳过已完成 qid`，只补缺的。
+- 坏行（硬关机砍断的残行）自动剔除并备份为 `*.jsonl.bad`，不会让整份结果作废。
+
+强制从零重跑：`--force`（sweep 会先删文件，并给 run.py 传 `--no-resume`）。
+
 ## 环境实测结论（不是猜的）
 
 | 项 | 实测 | 处置 |

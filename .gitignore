@@ -4,3 +4,4 @@ __pycache__/
 .env
 eval/results/_smoke/
 models/
+STOP
