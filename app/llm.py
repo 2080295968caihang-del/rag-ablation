@@ -77,6 +77,35 @@ def ledger_reset() -> None:
             _LEDGER[k] = 0
 
 
+# ---- 任务级计量（线程局部）----
+# 全局 _LEDGER 做差分在多线程下会互相串账（实测把 600 条任务的 prompt tokens
+# 从 160k 记成 400k），成本比较因此失真。这里按线程累加，一个线程只跑一条任务。
+_TLS = threading.local()
+
+
+def task_reset() -> None:
+    _TLS.prompt_tokens = 0
+    _TLS.completion_tokens = 0
+    _TLS.calls = 0
+
+
+def task_usage() -> dict:
+    pt = getattr(_TLS, "prompt_tokens", 0)
+    ct = getattr(_TLS, "completion_tokens", 0)
+    return {
+        "prompt_tokens": pt,
+        "completion_tokens": ct,
+        "calls": getattr(_TLS, "calls", 0),
+        "cost_cny": cost_of(pt, ct),
+    }
+
+
+def _task_add(prompt_tokens: int, completion_tokens: int) -> None:
+    _TLS.prompt_tokens = getattr(_TLS, "prompt_tokens", 0) + prompt_tokens
+    _TLS.completion_tokens = getattr(_TLS, "completion_tokens", 0) + completion_tokens
+    _TLS.calls = getattr(_TLS, "calls", 0) + 1
+
+
 def ledger_delta(before: dict, after: dict | None = None) -> dict:
     after = after or ledger_snapshot()
     d = {k: after[k] - before.get(k, 0) for k in ("prompt_tokens", "completion_tokens", "calls", "retries", "failures")}
@@ -105,6 +134,7 @@ def chat(messages, temperature: float = 0.0, max_retries: int = 3) -> dict:
                 _LEDGER["calls"] += 1
                 if attempt:
                     _LEDGER["retries"] += attempt
+            _task_add(pt, ct)
             return {"text": text, "prompt_tokens": pt, "completion_tokens": ct, "latency_ms": latency}
         except Exception as e:  # noqa: BLE001
             last = e

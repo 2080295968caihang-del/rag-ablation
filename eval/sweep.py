@@ -24,6 +24,17 @@ def n_lines(p: Path) -> int:
         return sum(1 for line in f if line.strip())
 
 
+def _rel(p: Path) -> str:
+    """路径尽量相对化；跨盘/相对基准不一致时退回绝对路径，不让 manifest 写不出来。"""
+    try:
+        return str(p.relative_to(common.ROOT))
+    except ValueError:
+        try:
+            return str(p.resolve().relative_to(common.ROOT.resolve()))
+        except ValueError:
+            return str(p)
+
+
 def write_manifest(seeds, tags, started_at, expect_per_file: int, dataset: str = "") -> dict:
     import datetime as dt
 
@@ -43,7 +54,7 @@ def write_manifest(seeds, tags, started_at, expect_per_file: int, dataset: str =
                 {
                     "tag": tag,
                     "seed": seed,
-                    "file": str(p.relative_to(common.ROOT)),
+                    "file": _rel(p),
                     "n": len(recs),
                     "cost_cny": round(cost, 6),
                     "prompt_tokens": sum(r.get("prompt_tokens", 0) for r in recs),
@@ -92,7 +103,8 @@ def main() -> int:
     ap.add_argument("--results", default="", help="结果目录，默认 eval/results")
     args = ap.parse_args()
 
-    common.set_results(args.results or (common.ROOT / "eval" / "results"))
+    common.set_results(Path(args.results).resolve() if args.results
+                       else (common.ROOT / "eval" / "results"))
     n_samples = len(common.load_samples(Path(args.data)))
     seeds = [int(s) for s in args.seeds.split(",") if s.strip()]
     only = set(x.strip() for x in args.only.split(",") if x.strip())

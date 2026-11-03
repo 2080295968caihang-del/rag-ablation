@@ -47,11 +47,12 @@ def main() -> int:
     check(not bad_flag, f"is_gold 与 gold_pids 一致（违例 {len(bad_flag)}）")
 
     # ---- 2. 结果文件 ----
+    seeds = common.seeds_in() or list(common.SEEDS)
     combos = [(r, rr, rw) for r in common.RETRIEVERS for rr in common.RERANKS for rw in common.REWRITES]
     need = [common.tag_of(*c) for c in combos]
     missing, wrong_n, wrong_qid = [], [], []
     for tag in need:
-        for seed in common.SEEDS:
+        for seed in seeds:
             p = common.result_path(tag, seed)
             recs = common.load_records(p)
             if not recs:
@@ -62,9 +63,9 @@ def main() -> int:
             if sorted(r["qid"] for r in recs) != sorted(qids):
                 wrong_qid.append(f"{tag}@{seed}")
     if args.allow_partial:
-        check(True, f"[partial] 已有 {len(need)*len(common.SEEDS)-len(missing)}/{len(need)*len(common.SEEDS)} 个结果文件")
+        check(True, f"[partial] 已有 {len(need)*len(seeds)-len(missing)}/{len(need)*len(seeds)} 个结果文件")
     else:
-        check(not missing, f"24 个结果文件齐（缺 {missing[:3]} 共 {len(missing)}）")
+        check(not missing, f"{len(need)*len(seeds)} 个结果文件齐（缺 {missing[:3]} 共 {len(missing)}）")
         check(not wrong_n, f"每文件 {n_s} 行（异常 {wrong_n[:3]}）")
         check(not wrong_qid, f"qid 与数据集一致（异常 {wrong_qid[:3]}）")
 
@@ -83,10 +84,10 @@ def main() -> int:
         m = json.loads(mp.read_text(encoding="utf-8"))
         for k in ("model", "prices", "seeds", "git_sha", "started_at", "finished_at", "total_cost_cny"):
             check(k in m, f"manifest 含 {k}")
-        check(m.get("seeds") == list(common.SEEDS), f"manifest seeds={m.get('seeds')}")
+        check(sorted(m.get("seeds") or []) == seeds, f"manifest seeds={m.get('seeds')} 与文件名一致 {seeds}")
         check(float(m.get("total_cost_cny", 0)) > 0, f"manifest 总成本>0（{m.get('total_cost_cny')}）")
         if not args.allow_partial:
-            want = 8 * len(common.SEEDS) * n_s
+            want = 8 * len(seeds) * n_s
             check(m.get("total_tasks") == want, f"manifest total_tasks={want}（{m.get('total_tasks')}）")
     else:
         check(False, "manifest.json 存在（缺失）")

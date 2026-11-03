@@ -173,7 +173,7 @@ def main() -> int:
     common.set_results(args.results or (common.ROOT / "eval" / "results"))
 
     samples = {s["qid"]: s for s in common.load_samples(Path(args.data))}
-    seeds = list(common.SEEDS)
+    seeds = common.seeds_in() or list(common.SEEDS)
     combos = [(r, rr, rw) for r in common.RETRIEVERS for rr in common.RERANKS for rw in common.REWRITES]
 
     data = {}
@@ -192,10 +192,11 @@ def main() -> int:
     base_combo = common.BASE
     base = data.get(base_combo)
     lines: list[str] = []
-    lines.append("# Agent 检索策略消融（HotpotQA distractor / 100 条）\n")
+    n_samples = len(samples)
+    lines.append(f"# Agent 检索策略消融（HotpotQA distractor / {n_samples} 条）\n")
     n_rec = len(next(iter(data.values()))["rows"])
     lines.append(
-        f"每组 {len(seeds)} seed × 100 条 = {n_rec} 条记录（{len(data)}/8 组有结果）。"
+        f"每组 {len(seeds)} seed × {n_samples} 条 = {n_rec} 条记录（{len(data)}/8 组有结果）。"
         f"每任务 LLM 温度 0、top_k=5、max_steps=8，模型 `{llm_mod.MODEL}`"
         f"（实测由 deepseek-flash 承接）。\n"
     )
@@ -274,8 +275,12 @@ def main() -> int:
         lines.append(f"| gold 注入 | {fmt_pct(ia['success'])} | {fmt_pct(ia['cit_p'])} | "
                      f"{(ia['success']-ba['success'])*100:+.1f} pt |")
         gap = ia["success"] - ba["success"]
+        if gap > 0:
+            verdict = "这部分是检索/重排造成的损失"
+        else:
+            verdict = ("gold 注入反而更差，说明该对照已失效（历史数据污染或配置不一致），不可作为归因依据")
         lines.append(
-            f"\n读入上限与实跑差距 **{gap*100:+.1f} pt**：这部分是检索/重排造成的损失；"
+            f"\n读入上限与实跑差距 **{gap*100:+.1f} pt**：{verdict}；"
             f"gold 注入后仍失败的 {(1-ia['success'])*100:.1f}% 属于读入后的推理与引用侧问题。\n"
         )
     else:
@@ -327,7 +332,7 @@ def main() -> int:
             agree_a += len(ans) == 1
             agree_c += len(cit) == 1
     lines.append(
-        f"\n_统计口径_：temperature=0 但服务端非严格确定性 —— base 组 3 个 seed 逐条答案相同 "
+        f"\n_统计口径_：temperature=0 但服务端非严格确定性 —— base 组 {len(seeds)} 个 seed 逐条答案相同 "
         f"{agree_a}/{n_cmp}、引用相同 {agree_c}/{n_cmp}，即 seed 带来约 {(1-agree_a/max(1,n_cmp))*100:.0f}% 的轨迹扰动。"
         f"为避免把强相关样本当独立观测，CI 按 qid 聚类（n={len(next(iter(data.values()))['clust'])}）"
         f"做 {N_BOOT} 次配对 bootstrap，区间偏保守。_\n"

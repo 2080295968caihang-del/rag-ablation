@@ -14,6 +14,16 @@ REWRITES = (False, True)
 SEEDS = (42, 43, 44)
 BASE = ("dense", False, False)
 
+
+def seeds_in(results: Path | None = None) -> list[int]:
+    """从结果目录的文件名反推实际跑过哪些 seed，避免脚本写死 SEEDS。"""
+    import re
+
+    d = results or RESULTS
+    pat = re.compile(r"_seed(\d+)\.jsonl$")
+    found = {int(m.group(1)) for p in d.glob("*_seed*.jsonl") if (m := pat.search(p.name))}
+    return sorted(found)
+
 LONG_NAMES = ("success", "cit_p", "cit_r", "f1", "p95_ms", "cost_cny")
 
 

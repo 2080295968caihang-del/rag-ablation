@@ -76,7 +76,7 @@ def run_task(sample: dict, cfg: dict) -> dict:
     mock = bool(cfg.get("mock"))
     gold_inject = bool(cfg.get("gold_inject"))
 
-    before = llm.ledger_snapshot()
+    llm.task_reset()
     t0 = time.time()
     tool_calls = 0
     all_retrieved: list[int] = []
@@ -181,7 +181,7 @@ def run_task(sample: dict, cfg: dict) -> dict:
             history.append(queries[0])
 
     latency_ms = int((time.time() - t0) * 1000)
-    delta = llm.ledger_delta(before)
+    delta = llm.task_usage()
     return {
         "qid": qid,
         "cfg": {"retriever": mode, "rerank": use_rr, "rewrite": use_rw, "top_k": top_k,
