@@ -1,0 +1,192 @@
+{
+  "project": "rag-ablation",
+  "model": "deepseek-chat",
+  "served_model": "deepseek-flash",
+  "base_url": "https://api.deepseek.com",
+  "temperature": 0.0,
+  "prices": {
+    "price_in_usd_per_mtok": 0.15,
+    "price_out_usd_per_mtok": 0.6,
+    "usd_cny": 7.1,
+    "note": "DeepSeek 官方价目表已只列 deepseek-flash / deepseek-v4-pro；deepseek-chat 为别名，实测由 deepseek-flash 承接，按 Flash off-peak cache-miss 价计"
+  },
+  "seeds": [
+    42,
+    43
+  ],
+  "dataset": "data\\hotpot_dev_600.jsonl",
+  "expected_per_file": 600,
+  "git_sha": "76b36ad1d40b9e501a085e9bcedc47413f16f680",
+  "started_at": "2026-11-03T13:05:10",
+  "finished_at": "2026-11-03T16:03:52",
+  "runs": [
+    {
+      "tag": "dense_rr-off_rw-off",
+      "seed": 42,
+      "file": "eval\\results_600\\dense_rr-off_rw-off_seed42.jsonl",
+      "n": 600,
+      "cost_cny": 0.55459,
+      "prompt_tokens": 399862,
+      "completion_tokens": 30219
+    },
+    {
+      "tag": "dense_rr-off_rw-off",
+      "seed": 43,
+      "file": "eval\\results_600\\dense_rr-off_rw-off_seed43.jsonl",
+      "n": 600,
+      "cost_cny": 0.548967,
+      "prompt_tokens": 396190,
+      "completion_tokens": 29814
+    },
+    {
+      "tag": "dense_rr-off_rw-on",
+      "seed": 42,
+      "file": "eval\\results_600\\dense_rr-off_rw-on_seed42.jsonl",
+      "n": 600,
+      "cost_cny": 0.6736,
+      "prompt_tokens": 431659,
+      "completion_tokens": 50204
+    },
+    {
+      "tag": "dense_rr-off_rw-on",
+      "seed": 43,
+      "file": "eval\\results_600\\dense_rr-off_rw-on_seed43.jsonl",
+      "n": 600,
+      "cost_cny": 0.687969,
+      "prompt_tokens": 441869,
+      "completion_tokens": 51026
+    },
+    {
+      "tag": "dense_rr-on_rw-off",
+      "seed": 42,
+      "file": "eval\\results_600\\dense_rr-on_rw-off_seed42.jsonl",
+      "n": 600,
+      "cost_cny": 0.506896,
+      "prompt_tokens": 367485,
+      "completion_tokens": 27120
+    },
+    {
+      "tag": "dense_rr-on_rw-off",
+      "seed": 43,
+      "file": "eval\\results_600\\dense_rr-on_rw-off_seed43.jsonl",
+      "n": 600,
+      "cost_cny": 0.511164,
+      "prompt_tokens": 370333,
+      "completion_tokens": 27411
+    },
+    {
+      "tag": "dense_rr-on_rw-on",
+      "seed": 42,
+      "file": "eval\\results_600\\dense_rr-on_rw-on_seed42.jsonl",
+      "n": 600,
+      "cost_cny": 0.664658,
+      "prompt_tokens": 428715,
+      "completion_tokens": 48846
+    },
+    {
+      "tag": "dense_rr-on_rw-on",
+      "seed": 43,
+      "file": "eval\\results_600\\dense_rr-on_rw-on_seed43.jsonl",
+      "n": 600,
+      "cost_cny": 0.641457,
+      "prompt_tokens": 411982,
+      "completion_tokens": 47582
+    },
+    {
+      "tag": "hybrid_rr-off_rw-off",
+      "seed": 42,
+      "file": "eval\\results_600\\hybrid_rr-off_rw-off_seed42.jsonl",
+      "n": 600,
+      "cost_cny": 0.494366,
+      "prompt_tokens": 356004,
+      "completion_tokens": 27048
+    },
+    {
+      "tag": "hybrid_rr-off_rw-off",
+      "seed": 43,
+      "file": "eval\\results_600\\hybrid_rr-off_rw-off_seed43.jsonl",
+      "n": 600,
+      "cost_cny": 0.489145,
+      "prompt_tokens": 352347,
+      "completion_tokens": 26737
+    },
+    {
+      "tag": "hybrid_rr-off_rw-on",
+      "seed": 42,
+      "file": "eval\\results_600\\hybrid_rr-off_rw-on_seed42.jsonl",
+      "n": 600,
+      "cost_cny": 0.611765,
+      "prompt_tokens": 385919,
+      "completion_tokens": 47128
+    },
+    {
+      "tag": "hybrid_rr-off_rw-on",
+      "seed": 43,
+      "file": "eval\\results_600\\hybrid_rr-off_rw-on_seed43.jsonl",
+      "n": 600,
+      "cost_cny": 0.614706,
+      "prompt_tokens": 388089,
+      "completion_tokens": 47275
+    },
+    {
+      "tag": "hybrid_rr-on_rw-off",
+      "seed": 42,
+      "file": "eval\\results_600\\hybrid_rr-on_rw-off_seed42.jsonl",
+      "n": 600,
+      "cost_cny": 0.515073,
+      "prompt_tokens": 373738,
+      "completion_tokens": 27477
+    },
+    {
+      "tag": "hybrid_rr-on_rw-off",
+      "seed": 43,
+      "file": "eval\\results_600\\hybrid_rr-on_rw-off_seed43.jsonl",
+      "n": 600,
+      "cost_cny": 0.512488,
+      "prompt_tokens": 372014,
+      "completion_tokens": 27301
+    },
+    {
+      "tag": "hybrid_rr-on_rw-on",
+      "seed": 42,
+      "file": "eval\\results_600\\hybrid_rr-on_rw-on_seed42.jsonl",
+      "n": 600,
+      "cost_cny": 0.646255,
+      "prompt_tokens": 414887,
+      "completion_tokens": 47981
+    },
+    {
+      "tag": "hybrid_rr-on_rw-on",
+      "seed": 43,
+      "file": "eval\\results_600\\hybrid_rr-on_rw-on_seed43.jsonl",
+      "n": 600,
+      "cost_cny": 0.644298,
+      "prompt_tokens": 413407,
+      "completion_tokens": 47892
+    },
+    {
+      "tag": "dense_rr-off_rw-off_goldinj",
+      "seed": 42,
+      "file": "eval/results_600/dense_rr-off_rw-off_goldinj_seed42.jsonl",
+      "n": 600,
+      "cost_cny": 0.2442,
+      "prompt_tokens": 159573,
+      "completion_tokens": 17433,
+      "note": "gold 注入对照，不计入 8 组消融"
+    }
+  ],
+  "total_cost_cny": 9.5616,
+  "total_tasks": 10200,
+  "gold_injection": {
+    "tag": "dense_rr-off_rw-off_goldinj",
+    "seed": 42,
+    "file": "eval/results_600/dense_rr-off_rw-off_goldinj_seed42.jsonl",
+    "n": 600,
+    "cost_cny": 0.2442,
+    "prompt_tokens": 159573,
+    "completion_tokens": 17433,
+    "note": "gold 注入对照，不计入 8 组消融"
+  },
+  "sweep_cost_cny": 9.3174,
+  "sweep_tasks": 9600
+}

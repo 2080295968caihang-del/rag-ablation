@@ -170,7 +170,7 @@ def main() -> int:
     ap.add_argument("--results", default="", help="结果目录，默认 eval/results")
     ap.add_argument("--out", default="", help="summary 输出路径，默认 <results>/summary.md")
     args = ap.parse_args()
-    common.set_results(args.results or (common.ROOT / "eval" / "results"))
+    common.set_results(args.results or common.RESULTS)
 
     samples = {s["qid"]: s for s in common.load_samples(Path(args.data))}
     seeds = common.seeds_in() or list(common.SEEDS)

@@ -104,7 +104,7 @@ def main() -> int:
     args = ap.parse_args()
 
     common.set_results(Path(args.results).resolve() if args.results
-                       else (common.ROOT / "eval" / "results"))
+                       else common.RESULTS)
     n_samples = len(common.load_samples(Path(args.data)))
     seeds = [int(s) for s in args.seeds.split(",") if s.strip()]
     only = set(x.strip() for x in args.only.split(",") if x.strip())

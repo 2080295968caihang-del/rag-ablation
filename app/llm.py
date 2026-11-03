@@ -56,7 +56,11 @@ def _retryable(exc: Exception) -> bool:
     if "timeout" in name or "connection" in name or "ratelimit" in name:
         return True
     status = _status_of(exc)
-    return status in (429, 500, 502, 503, 504) if isinstance(status, int) else False
+    if not isinstance(status, int):
+        return False
+    # 5xx 一律重试：520/521/522 等 Cloudflare 系列是上游瞬时故障，
+    # 之前只白名单 500/502/503/504，导致 520 被当成致命错误整批中止。
+    return status == 429 or status == 408 or 500 <= status <= 599
 
 
 def cost_of(prompt_tokens: int, completion_tokens: int) -> float:
@@ -113,9 +117,9 @@ def ledger_delta(before: dict, after: dict | None = None) -> dict:
     return d
 
 
-def chat(messages, temperature: float = 0.0, max_retries: int = 3) -> dict:
+def chat(messages, temperature: float = 0.0, max_retries: int = 5) -> dict:
     """单次对话。返回 {text, prompt_tokens, completion_tokens, latency_ms}。失败抛异常由调用方处理。"""
-    delays = [0.5, 1.0, 2.0]
+    delays = [1.0, 2.0, 4.0, 8.0, 16.0]
     last = None
     for attempt in range(max_retries + 1):
         t0 = time.time()

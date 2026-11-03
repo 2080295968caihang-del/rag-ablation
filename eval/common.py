@@ -5,13 +5,14 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA = ROOT / "data" / "hotpot_dev_100.jsonl"
-RESULTS = ROOT / "eval" / "results"
+DATA = ROOT / "data" / "hotpot_dev_600.jsonl"
+RESULTS = ROOT / "eval" / "results_600"
 
 RETRIEVERS = ("dense", "hybrid")
 RERANKS = (False, True)
 REWRITES = (False, True)
-SEEDS = (42, 43, 44)
+# 实际跑过 42/43（余额限制）。SEEDS 仅在结果目录为空时兜底，正常从文件名推断。
+SEEDS = (42, 43)
 BASE = ("dense", False, False)
 
 

@@ -28,7 +28,7 @@ def main() -> int:
     ap.add_argument("--data", default=str(common.DATA))
     ap.add_argument("--results", default="")
     args = ap.parse_args()
-    common.set_results(args.results or (common.ROOT / "eval" / "results"))
+    common.set_results(args.results or common.RESULTS)
 
     # ---- 1. 数据集 ----
     samples = common.load_samples(Path(args.data))
@@ -88,7 +88,9 @@ def main() -> int:
         check(float(m.get("total_cost_cny", 0)) > 0, f"manifest 总成本>0（{m.get('total_cost_cny')}）")
         if not args.allow_partial:
             want = 8 * len(seeds) * n_s
-            check(m.get("total_tasks") == want, f"manifest total_tasks={want}（{m.get('total_tasks')}）")
+            # total_tasks 可含 gold 注入等附加 run，用 sweep_tasks 校验 8 组消融本身
+            got = m.get("sweep_tasks", m.get("total_tasks"))
+            check(got == want, f"manifest 消融任务数={want}（{got}）")
     else:
         check(False, "manifest.json 存在（缺失）")
 
