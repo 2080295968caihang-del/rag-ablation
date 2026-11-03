@@ -188,5 +188,7 @@
     "note": "gold 注入对照，不计入 8 组消融"
   },
   "sweep_cost_cny": 9.3174,
-  "sweep_tasks": 9600
+  "sweep_tasks": 9600,
+  "git_sha_post": "b718369",
+  "git_sha_note": "git_sha 为 sweep 启动时的 HEAD（76b36ad）。本次运行另含一处未提交的重试策略改动（5xx 全重试，用于从 520 中断处续跑），该改动只影响失败重试、不改变任何任务的结果；其后的 b718369 提交固化了这部分代码与结果整理。"
 }
