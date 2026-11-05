@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -107,6 +108,33 @@ def main() -> int:
         check(txt.count(" pt [") >= need_ci, f"delta 行带 CI（{txt.count(' pt [')} 处，需 ≥{need_ci}）")
     else:
         check(args.allow_partial, "summary.md 存在")
+
+    # ---- 4b. 确认性检验 + top_k 干预（第二阶段）----
+    cp600 = common.ROOT / "data" / "hotpot_dev_600.jsonl"
+    conf = common.ROOT / "eval" / "results_confirm_1500" / "confirm.md"
+    if conf.exists():
+        ct = conf.read_text(encoding="utf-8")
+        check("留出集（未参与选组）" in ct, "confirm 有留出集行")
+        check(ct.count(" pt ") >= 10, f"confirm 带 CI 行数（{ct.count(' pt ')} 处）")
+        tkd = common.ROOT / "eval" / "results_topk"
+        if tkd.exists():
+            n600 = len(common.load_samples(cp600)) if cp600.exists() else 0
+            bad = []
+            found = set()
+            for p in sorted(tkd.glob("*_top*_seed*.jsonl")):
+                recs = common.load_records(p)
+                if n600 and len(recs) != n600:
+                    bad.append(f"{p.name}:{len(recs)}/{n600}")
+                if any(r.get("terminated_by") in ("parse_error", "api_error") for r in recs):
+                    bad.append(f"{p.name}:bad_term")
+                m = re.search(r"_top(\d+)_seed", p.name)
+                if m:
+                    found.add(int(m.group(1)))
+            check(not bad, f"top_k 结果均为 {n600} 行且无坏终止（异常 {bad[:3]} 共 {len(bad)}）")
+            for k in sorted(found):
+                check(f"top_k={k}" in ct, f"confirm 含 top_k={k} 段")
+    else:
+        check(args.allow_partial, "confirm.md 存在")
 
     # ---- 5. 指标口径复算 ----
     from app import metrics
