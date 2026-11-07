@@ -119,6 +119,7 @@ def main() -> int:
         check("留出集（未参与选组）" in ct, "confirm 有留出集行")
         check("有效对照" in ct and "候选池约束" in ct, "confirm 有槽位有效性与候选池约束说明")
         check("失败类型转移" in ct, "confirm 有失败类型转移（机制证据）")
+        check("单步 vs 多步" in ct, "confirm 有单步/多步对照")
         check(ct.count(" pt ") >= 10, f"confirm 带 CI 行数（{ct.count(' pt ')} 处）")
         tkd = common.ROOT / "eval" / "results_topk"
         if tkd.exists():

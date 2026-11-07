@@ -180,6 +180,25 @@ def run_task(sample: dict, cfg: dict) -> dict:
             queries = [nq or question]
             history.append(queries[0])
 
+    # 步数耗尽仍未作答：强制收口一次。
+    # 不加这一步时 max_steps=1 的对照会得到空答案，把「单步 vs 多步」的差异放大成假效应。
+    if not mock and not gold_inject and not answer and terminated_by == "max_steps":
+        try:
+            r = llm.chat(
+                _messages(question, context, history)
+                + [{"role": "user", "content":
+                    "The step budget is exhausted. Answer now with strict JSON "
+                    '{"action":"answer","answer":"...","citations":[..]} using only the evidence above.'}]
+            )
+            d2 = _parse(r["text"]) or {}
+            answer = str(d2.get("answer") or "")
+            citations = list(d2.get("citations") or [])
+            terminated_by = "forced_answer"
+        except llm.LLMError:
+            raise
+        except Exception:  # noqa: BLE001
+            pass
+
     latency_ms = int((time.time() - t0) * 1000)
     delta = llm.task_usage()
     return {

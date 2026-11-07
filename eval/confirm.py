@@ -192,6 +192,27 @@ def check_complete(d: Path, tag: str, k: int | None, seeds, expected: int) -> st
     return "；".join(bad)
 
 
+def load_arm_pattern(d: Path, stem: str, seeds) -> dict[str, dict[str, float]]:
+    """按 <stem>_seed<sd>.jsonl 读取；文件不齐返回空。"""
+    per: dict[str, dict[str, list[float]]] = {}
+    for sd in seeds:
+        p = d / f"{stem}_seed{sd}.jsonl"
+        if not p.exists():
+            return {}
+        for r in common.load_records(p):
+            s_ = SAMPLES[r["qid"]]
+            f1 = M.f1(r["answer"], s_["answer"])
+            cp, _ = M.citation_scores(r["citations"], r["context_pids"], s_["gold_pids"])
+            slot = per.setdefault(r["qid"], {"cp": [], "succ": [], "cost": [], "cov": [], "tc": []})
+            slot["cp"].append(cp)
+            slot["succ"].append(M.is_success(f1, cp))
+            slot["cost"].append(r["cost_cny"])
+            g = set(s_["gold_pids"])
+            slot["cov"].append(len(g & set(r["context_pids"])) / len(g))
+            slot["tc"].append(r.get("tool_calls") or 1)
+    return {q: {kk: float(np.mean(v)) for kk, v in d_.items()} for q, d_ in per.items()}
+
+
 def discover_topk(d: Path, only: str = "") -> list[int]:
     """从文件名里发现所有 top_k 档位。"""
     ks = set()
@@ -236,6 +257,7 @@ def main() -> int:
     ap.add_argument("--coverage-results", default=str(common.ROOT / "eval" / "results_600"))
     ap.add_argument("--topk-dir", default="")
     ap.add_argument("--topk-k", default="", help="只保留这些档位，如 10,20；留空=自动发现")
+    ap.add_argument("--steps-dir", default=str(common.ROOT / "eval" / "results_steps"))
     ap.add_argument("--topk-data", default=str(common.ROOT / "data" / "hotpot_dev_600.jsonl"),
                     help="top_k 那批跑的数据集，用于核对行数")
     args = ap.parse_args()
@@ -368,6 +390,31 @@ def main() -> int:
                          "success 0.789 vs 0.792、成本差 3.1%。这部分差异来自服务端非确定性 + 0.2 条上下文，"
                          "可当作**本管线的重复运行噪声量级（≈0.3 pt / 3%）**，用于判断其他 delta 的下限；"
                          "但它只有一对样本，不是严格的重复性实验。\n")
+
+    sd_path = Path(args.steps_dir) if args.steps_dir else None
+    if sd_path and sd_path.exists():
+        one = load_arm_pattern(sd_path, f"{BEST_TAG}_steps1", seeds)
+        multi = load_arm_pattern(d, BEST_TAG, seeds)
+        if one and multi:
+            qs = sorted(set(one) & set(multi))
+            tc8 = float(np.mean([multi[q]["tc"] for q in qs]))
+            tc1 = float(np.mean([one[q]["tc"] for q in qs]))
+            L.append("## 6. 单步 vs 多步（`max_steps=1` vs `max_steps=8`，同检索同 top_k=5）\n")
+            L.append(f"n={len(qs)} 题（同题配对）。多步组实际平均 {tc8:.2f} 次调用，单步组 {tc1:.2f} 次。\n")
+            L.append("| 指标 | 8 步上限 | 1 步 | Δ | 95% CI | 跨 0 |")
+            L.append("|---|---|---|---|---|---|")
+            for key, name in (("cov", "gold 覆盖率"), ("cp", "cit_p"), ("succ", "success")):
+                a, b, mu, lo, hi = paired(multi, one, key, qs, rng)
+                L.append(f"| {name} | {a:.4f} | {b:.4f} | {mu*100:+.2f} pt | "
+                         f"[{lo*100:+.2f}, {hi*100:+.2f}] | {'是' if lo < 0 < hi else '**否**'} |")
+            a, b, rel, (lo, hi) = cost_delta(multi, one, qs, rng)
+            L.append(f"| 单任务成本 | ¥{a:.5f} | ¥{b:.5f} | {rel*100:+.1f}% | "
+                     f"[{lo*100:+.1f}%, {hi*100:+.1f}%] | {'是' if lo < 0 < hi else '**否**'} |")
+            L.append(f"| 平均工具调用 | {tc8:.2f} | {tc1:.2f} | {tc1-tc8:+.2f} | — | — |")
+            L.append("")
+            L.append("判读：1 步 = 「检索一次 → 带引用作答」；8 步允许模型自行追加检索（步数耗尽时强制收口一次，"
+                     "避免空答案把单步组系统性压低）。差值就是**多步循环本身的净价值**；"
+                     "success 的 CI 若跨 0，说明在本任务上多步是可选项而非必需项。\n")
 
     out = d / "confirm.md"
     out.write_text("\n".join(L) + "\n", encoding="utf-8")
