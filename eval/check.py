@@ -138,6 +138,22 @@ def main() -> int:
             check(not bad, f"top_k 结果均为 {n600} 行且无坏终止（异常 {bad[:3]} 共 {len(bad)}）")
             for k in sorted(found):
                 check(f"top_k={k}" in ct, f"confirm 含 top_k={k} 段")
+        # 留出集复现：行数、配置、坏终止，且 confirm 必须有该节
+        hod = common.ROOT / "eval" / "results_holdout"
+        if hod.exists() and any(hod.glob("*.jsonl")):
+            nho = len(common.load_samples(common.ROOT / "data" / "hotpot_dev_holdout900.jsonl"))
+            bad_ho = []
+            for p_ in sorted(hod.glob("*_top*_seed*.jsonl")):
+                recs = common.load_records(p_)
+                if len(recs) != nho:
+                    bad_ho.append(f"{p_.name}:{len(recs)}/{nho}")
+                if any(r.get("terminated_by") in ("parse_error", "api_error") for r in recs):
+                    bad_ho.append(f"{p_.name}:bad_term")
+                if any((r.get("cfg") or {}).get("top_k") != 20 for r in recs):
+                    bad_ho.append(f"{p_.name}:cfg_topk!=20")
+            check(not bad_ho, f"留出集 {nho} 行/config=20/无坏终止（异常 {bad_ho[:3]} 共 {len(bad_ho)}）")
+            check("留出 900 题" in ct, "confirm 含留出集复现节")
+            check("复现检查" in ct, "confirm 含 600 vs 900 复现对照表")
     else:
         check(args.allow_partial, "confirm.md 存在")
 

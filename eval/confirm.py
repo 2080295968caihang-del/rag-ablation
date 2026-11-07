@@ -50,21 +50,33 @@ def load_arm(d: Path, tag: str, seeds) -> dict[str, dict[str, float]]:
     return {q: {k: float(np.mean(v)) for k, v in d.items()} for q, d in per.items()}
 
 
-def paired(a: dict, b: dict, key: str, qs: list[str], rng) -> tuple[float, float, float, float, float]:
+def _rng_for(key: str, qs: list[str]) -> np.random.Generator:
+    """按 (指标, qid 列表) 确定性播种。
+
+    共用一条随机流会让 CI 随「在它之前算了多少个量」而变：加一节新分析、
+    或把同一个量算两次，都会得到不同的置信区间。同一个量必须永远给出同一个 CI。
+    """
+    h = hashlib.sha256(("|".join([key, *qs])).encode()).digest()[:8]
+    return np.random.default_rng(int.from_bytes(h, "big"))
+
+
+def paired(a: dict, b: dict, key: str, qs: list[str]) -> tuple[float, float, float, float, float]:
     av = np.array([a[q][key] for q in qs])
     bv = np.array([b[q][key] for q in qs])
     d = bv - av
     mu = d.mean()
+    rng = _rng_for(f"paired:{key}", qs)
     idx = rng.integers(0, len(qs), (N_BOOT, len(qs)))
     bs = d[idx].mean(axis=1)
     lo, hi = np.percentile(bs, [2.5, 97.5])
     return av.mean(), bv.mean(), mu, lo, hi
 
 
-def cost_delta(a: dict, b: dict, qs: list[str], rng) -> tuple[float, float, float, float]:
+def cost_delta(a: dict, b: dict, qs: list[str]) -> tuple[float, float, float, float]:
     av = np.array([a[q]["cost"] for q in qs])
     bv = np.array([b[q]["cost"] for q in qs])
     rel = (bv.sum() - av.sum()) / av.sum()
+    rng = _rng_for("cost", qs)
     idx = rng.integers(0, len(qs), (N_BOOT, len(qs)))
     bs = np.array([(bv[i].sum() - av[i].sum()) / av[i].sum() for i in idx])
     lo, hi = np.percentile(bs, [2.5, 97.5])
@@ -203,7 +215,8 @@ def load_arm_pattern(d: Path, stem: str, seeds) -> dict[str, dict[str, float]]:
             s_ = SAMPLES[r["qid"]]
             f1 = M.f1(r["answer"], s_["answer"])
             cp, _ = M.citation_scores(r["citations"], r["context_pids"], s_["gold_pids"])
-            slot = per.setdefault(r["qid"], {"cp": [], "succ": [], "cost": [], "cov": [], "tc": []})
+            slot = per.setdefault(r["qid"], {"cp": [], "succ": [], "cost": [], "cov": [], "tc": [], "nctx": []})
+            slot["nctx"].append(len(r.get("context_pids") or []))
             slot["cp"].append(cp)
             slot["succ"].append(M.is_success(f1, cp))
             slot["cost"].append(r["cost_cny"])
@@ -211,6 +224,26 @@ def load_arm_pattern(d: Path, stem: str, seeds) -> dict[str, dict[str, float]]:
             slot["cov"].append(len(g & set(r["context_pids"])) / len(g))
             slot["tc"].append(r.get("tool_calls") or 1)
     return {q: {kk: float(np.mean(v)) for kk, v in d_.items()} for q, d_ in per.items()}
+
+
+def ctx_stats(d: Path, tag: str, k: int, seeds) -> tuple[float, int, int, int]:
+    """按原始记录统计上下文条数：(均值, 超过 20 条的任务数, 最大值, 任务数)。"""
+    tot = 0.0
+    over = 0
+    mx = 0
+    n = 0
+    for sd in seeds:
+        p = d / f"{tag}_top{k}_seed{sd}.jsonl"
+        if not p.exists():
+            continue
+        for r in common.load_records(p):
+            L_ = len(r.get("context_pids") or [])
+            tot += L_
+            n += 1
+            mx = max(mx, L_)
+            if L_ > 20:
+                over += 1
+    return (tot / n if n else 0.0), over, mx, n
 
 
 def discover_topk(d: Path, only: str = "") -> list[int]:
@@ -258,6 +291,8 @@ def main() -> int:
     ap.add_argument("--topk-dir", default="")
     ap.add_argument("--topk-k", default="", help="只保留这些档位，如 10,20；留空=自动发现")
     ap.add_argument("--steps-dir", default=str(common.ROOT / "eval" / "results_steps"))
+    ap.add_argument("--holdout-dir", default=str(common.ROOT / "eval" / "results_holdout"),
+                    help="留出集上重跑 k=20 的结果目录")
     ap.add_argument("--topk-data", default=str(common.ROOT / "data" / "hotpot_dev_600.jsonl"),
                     help="top_k 那批跑的数据集，用于核对行数")
     args = ap.parse_args()
@@ -276,7 +311,6 @@ def main() -> int:
     held = [q for q in allq if q not in seen]
     used = [q for q in allq if q in seen]
 
-    rng = np.random.default_rng(1)
     L: list[str] = []
     L.append("# 确认性检验：`hybrid+rerank` vs `dense` 基线\n")
     L.append(
@@ -289,12 +323,12 @@ def main() -> int:
         if not qs:
             continue
         for key, name in (("cp", "cit_p"), ("succ", "success"), ("cr", "cit_r"), ("f1", "f1")):
-            a, b, mu, lo, hi = paired(base, best, key, qs, rng)
+            a, b, mu, lo, hi = paired(base, best, key, qs)
             L.append(
                 f"| {label} | {len(qs)} | {name} | {a:.4f} | {b:.4f} | {mu*100:+.2f} pt | "
                 f"[{lo*100:+.2f}, {hi*100:+.2f}] | {'是' if lo < 0 < hi else '**否**'} |"
             )
-    a, b, rel, (lo, hi) = cost_delta(base, best, allq, rng)
+    a, b, rel, (lo, hi) = cost_delta(base, best, allq)
     L.append(f"| 全集 | {len(allq)} | 单任务成本 | ¥{a:.5f} | ¥{b:.5f} | {rel*100:+.1f}% | "
              f"[{lo*100:+.1f}%, {hi*100:+.1f}%] | {'是' if lo < 0 < hi else '**否**'} |")
     L.append("")
@@ -334,14 +368,14 @@ def main() -> int:
                 L.append(f"| 指标 | top_k=5 | top_k={k} | Δ | 95% CI | 跨 0 |")
                 L.append("|---|---|---|---|---|---|")
                 for key, name in (("cov", "gold 覆盖率"), ("cp", "cit_p"), ("succ", "success")):
-                    a, b, mu, lo, hi = paired(base5, tk, key, qs, rng)
+                    a, b, mu, lo, hi = paired(base5, tk, key, qs)
                     L.append(f"| {name} | {a:.4f} | {b:.4f} | {mu*100:+.2f} pt | "
                              f"[{lo*100:+.2f}, {hi*100:+.2f}] | {'是' if lo < 0 < hi else '**否**'} |")
                     if key == "cov":
                         cov_mu, cov_arm = mu, b
                     elif key == "succ":
                         succ_mu, succ_arm = mu, b
-                a, b, rel, (lo, hi) = cost_delta(base5, tk, qs, rng)
+                a, b, rel, (lo, hi) = cost_delta(base5, tk, qs)
                 L.append(f"| 单任务成本 | ¥{a:.5f} | ¥{b:.5f} | {rel*100:+.1f}% | "
                          f"[{lo*100:+.1f}%, {hi*100:+.1f}%] | {'是' if lo < 0 < hi else '**否**'} |")
                 L.append("")
@@ -351,8 +385,8 @@ def main() -> int:
             if len(rows) >= 2:
                 nctx5 = float(np.mean([base5[q]["nctx"] for q in
                                        sorted(set(ktab[rows[0][0]]) & set(base5))]))
-                base_cov = paired(base5, ktab[rows[0][0]], "cov", sorted(set(ktab[rows[0][0]]) & set(base5)), rng)[0]
-                base_succ = paired(base5, ktab[rows[0][0]], "succ", sorted(set(ktab[rows[0][0]]) & set(base5)), rng)[0]
+                base_cov = paired(base5, ktab[rows[0][0]], "cov", sorted(set(ktab[rows[0][0]]) & set(base5)))[0]
+                base_succ = paired(base5, ktab[rows[0][0]], "succ", sorted(set(ktab[rows[0][0]]) & set(base5)))[0]
                 base_cost = np.mean([base5[q]["cost"] for q in
                                      sorted(set(ktab[rows[0][0]]) & set(base5))])
                 L.append("### 饱和检查\n")
@@ -377,15 +411,30 @@ def main() -> int:
                 L.append("判读规则：Δcov/Δsucc 从 k 到 2k 的增量若不足前一段的一半，视为饱和，不再加槽位。\n")
                 arms_detail = {kk: arm_detail(td, BEST_TAG, kk, seeds) for kk in ktab}
                 failure_section(arm_detail(d, BEST_TAG, None, seeds), arms_detail, L)
-                L.append("## 5. 候选池约束（为什么 k=40 无效，真实饱和点怎么测）\n")
+                L.append("## 5. 候选池约束（为什么 k=40 几乎没改动，真实饱和点怎么测）\n")
                 L.append("`app/agent.py:116`：`cands = retrieve(index, q, k=20 if rerank else top_k)` —— "
-                         "开启重排时候选池**硬编码 20 条**，`rerank` 再从中取 `top_k`。因此 `top_k > 20` 在本实现里"
-                         "不可能增加上下文（实测 k=40 平均 20.1 条），这一档只能当重复测量用，不能当饱和证据。\n")
+                         "开启重排时**每一步**只取 20 条候选，`rerank` 再从中取 `top_k`。"
+                         "因此 `top_k > 20` 只可能通过**跨步累积**增加上下文（`agent.py:180` 会把模型提出的新查询"
+                         "作为下一步检索的 query，候选池 `pool` 跨步合并），而不是靠单步取更多。\n")
+                stats = {k: ctx_stats(td, BEST_TAG, k, seeds) for k in sorted(ktab)}
+                L.append("实测（按原始记录统计，未做 qid 平均）：\n")
+                L.append("| top_k | 任务数 | 平均上下文条数 | 超过 20 条的任务 | 最大条数 |")
+                L.append("|---|---|---|---|---|")
+                L.append(f"| 5 | {len(seeds) * len(base5)} | {nctx5:.3f} | 0 | 5 |")
+                for k, (m_, ov_, mx_, n_) in stats.items():
+                    L.append(f"| {k} | {n_} | {m_:.3f} | {ov_}（{ov_/max(n_,1):.1%}） | {mx_} |")
+                L.append("")
+                if len(stats) >= 2:
+                    ks_ = sorted(stats)
+                    a_, b_ = stats[ks_[-2]], stats[ks_[-1]]
+                    L.append(f"即 top_k={ks_[-1]} 相对 top_k={ks_[-2]} 平均只多 **{b_[0]-a_[0]:+.2f} 条**上下文，"
+                             f"且只发生在 {b_[1]/max(b_[3],1):.1%} 的任务上——差异太小，不足以检验"
+                             f"「再加槽位还有没有用」。该档只能当近似重复测量，不能当饱和证据。\n")
                 L.append("- **受影响**：「k=20 之后是否继续涨」未知。")
-                L.append("- **不受影响**：k=5→10→20 三档都是有效对照（上下文 5.0 / 10.0 / 19.9），"
-                         "覆盖率与成功率的因果链成立。")
-                L.append("- **要测真实饱和点**：把该常数提成参数（如 `--cand-k`），重跑 k=20/30/50；"
-                         "3 档 × 600 题 × 2 seed ≈ ¥5。")
+                L.append("- **不受影响**：k=5→10→20 三档的实测上下文条数见上表（逐档接近该档位名义值），"
+                         "属有效对照，覆盖率与成功率的因果链成立。")
+                L.append("- **要测真实饱和点**：把该常数提成参数（如 `--cand-k`），并保证 `cand_k >= top_k`、"
+                         "每步都取 `cand_k` 条，重跑 k=30/50；3 档 × 600 题 × 2 seed ≈ ¥6。")
                 L.append("- **意外的用处**：k=40 与 k=20 实质是同一配置的两次近似重复运行（上下文 20.1 vs 19.9 条），"
                          "success 0.789 vs 0.792、成本差 3.1%。这部分差异来自服务端非确定性 + 0.2 条上下文，"
                          "可当作**本管线的重复运行噪声量级（≈0.3 pt / 3%）**，用于判断其他 delta 的下限；"
@@ -404,10 +453,10 @@ def main() -> int:
             L.append("| 指标 | 8 步上限 | 1 步 | Δ | 95% CI | 跨 0 |")
             L.append("|---|---|---|---|---|---|")
             for key, name in (("cov", "gold 覆盖率"), ("cp", "cit_p"), ("succ", "success")):
-                a, b, mu, lo, hi = paired(multi, one, key, qs, rng)
+                a, b, mu, lo, hi = paired(multi, one, key, qs)
                 L.append(f"| {name} | {a:.4f} | {b:.4f} | {mu*100:+.2f} pt | "
                          f"[{lo*100:+.2f}, {hi*100:+.2f}] | {'是' if lo < 0 < hi else '**否**'} |")
-            a, b, rel, (lo, hi) = cost_delta(multi, one, qs, rng)
+            a, b, rel, (lo, hi) = cost_delta(multi, one, qs)
             L.append(f"| 单任务成本 | ¥{a:.5f} | ¥{b:.5f} | {rel*100:+.1f}% | "
                      f"[{lo*100:+.1f}%, {hi*100:+.1f}%] | {'是' if lo < 0 < hi else '**否**'} |")
             L.append(f"| 平均工具调用 | {tc8:.2f} | {tc1:.2f} | {tc1-tc8:+.2f} | — | — |")
@@ -415,6 +464,71 @@ def main() -> int:
             L.append("判读：1 步 = 「检索一次 → 带引用作答」；8 步允许模型自行追加检索（步数耗尽时强制收口一次，"
                      "避免空答案把单步组系统性压低）。差值就是**多步循环本身的净价值**；"
                      "success 的 CI 若跨 0，说明在本任务上多步是可选项而非必需项。\n")
+
+    ho_dir = Path(args.holdout_dir) if args.holdout_dir else None
+    if ho_dir and ho_dir.exists():
+        ho = load_arm_pattern(ho_dir, f"{BEST_TAG}_top20", seeds)
+        base5 = load_arm_pattern(d, BEST_TAG, seeds)
+        if ho and base5:
+            q900 = sorted(set(ho) & set(base5))
+            rows_ok = []
+            for sd in seeds:
+                pp = ho_dir / f"{BEST_TAG}_top20_seed{sd}.jsonl"
+                rows_ok.append(sum(1 for ln_ in open(pp, encoding="utf-8") if ln_.strip()) if pp.exists() else 0)
+            complete = all(x == len(q900) for x in rows_ok)
+
+            L.append("## 7. 留出 900 题的独立复现（top_k=20）\n")
+            L.append("阶段 3 的 top_k 结论建立在 600 题上，而这 600 题参与过选组。本节改在 **900 道从未参与任何选择的题**"
+                     "上重跑 k=20；k=5 基线取自 `results_confirm_1500` 中同配置（hybrid / rerank=on / rewrite=off / "
+                     "max_steps=8）同 seed 的同一批 qid，不重跑。\n")
+            L.append(f"配对 n={len(q900)} 题；k=20 文件行数 {rows_ok}，"
+                     f"{'完整' if complete else '**不完整，本节数值不可用**'}。\n")
+
+            if complete:
+                b900 = float(np.mean([base5[q]["succ"] for q in q900]))
+                b600 = float(np.mean([base5[q]["succ"] for q in used])) if used else float("nan")
+                n5 = float(np.mean([base5[q]["nctx"] for q in q900]))
+                n20 = float(np.mean([ho[q]["nctx"] for q in q900]))
+                L.append("| 指标 | k=5 | k=20 | Δ | 95% CI（qid 聚类 bootstrap） | 跨 0 |")
+                L.append("|---|---|---|---|---|---|")
+                for key, name in (("cov", "gold 覆盖率"), ("cp", "cit_p"), ("succ", "success")):
+                    a, b, mu, lo, hi = paired(base5, ho, key, q900)
+                    L.append(f"| {name} | {a:.4f} | {b:.4f} | {mu*100:+.2f} pt | "
+                             f"[{lo*100:+.2f}, {hi*100:+.2f}] | {'是' if lo < 0 < hi else '**否**'} |")
+                a, b, rel, (lo, hi) = cost_delta(base5, ho, q900)
+                L.append(f"| 单任务成本 | ¥{a:.5f} | ¥{b:.5f} | {rel*100:+.1f}% | "
+                         f"[{lo*100:+.1f}%, {hi*100:+.1f}%] | {'是' if lo < 0 < hi else '**否**'} |")
+                L.append(f"| 平均上下文条数 | {n5:.1f} | {n20:.1f} | {n20-n5:+.1f} | — | — |")
+                L.append("")
+                L.append(f"**难度差异必须扣除**：留出 900 题的 k=5 基线 success 为 **{b900:.4f}**，"
+                         f"高于选组用 600 题的 **{b600:.4f}**（留出集本身略容易）。因此本节只能读 **Δ**，"
+                         f"不能把 900 题的绝对值与 600 题混比。\n")
+
+                td2 = Path(args.topk_dir) if args.topk_dir else None
+                if td2 and td2.exists():
+                    k20_600 = load_topk_arm(td2, BEST_TAG, 20, seeds)
+                    q600 = sorted(set(k20_600) & set(base5))
+                    if q600:
+                        L.append("### 复现检查：600 题 vs 900 留出题\n")
+                        L.append("| 样本 | n | success Δ | 95% CI | 跨 0 | gold 覆盖 Δ | 成本 Δ |")
+                        L.append("|---|---|---|---|---|---|---|")
+                        # 600 题那行直接引用 §3 已算出的值：同一数量在同一份报告里只能有一个数字，
+                        # 重新抽一次 bootstrap 会得到略有差异的 CI（蒙特卡洛噪声），读者会当成矛盾。
+                        row600 = next((r for r in rows if r[0] == 20), None)
+                        L.append(f"| 600 题（阶段 3，参与过选组） | 600 | {row600[4]*100:+.2f} pt | 见 §3 | — | "
+                                 f"{row600[2]*100:+.2f} pt | {row600[5]*100:+.1f}% |" if row600 else "")
+                        _, _, ms, ls, hs = paired(base5, ho, "succ", q900)
+                        _, _, mc, _, _ = paired(base5, ho, "cov", q900)
+                        _, _, rl, _ = cost_delta(base5, ho, q900)
+                        L.append(f"| **900 留出题（本节）** | {len(q900)} | {ms*100:+.2f} pt | "
+                                 f"[{ls*100:+.2f}, {hs*100:+.2f}] | {'是' if ls < 0 < hs else '**否**'} | "
+                                 f"{mc*100:+.2f} pt | {rl*100:+.1f}% |")
+                        L.append("")
+                        L.append("判读：两行的 success Δ 若同号、量级接近且 CI 都不跨 0，说明 k 的效应不是 600 题特有；"
+                                 "若留出行 CI 跨 0，则阶段 3 的 +10.5 pt 只能算该 600 题的估计，不能外推。\n")
+                L.append("**为什么 k=20 与 k=20 之外不同**：本实现的候选池上限是 20（见 §5），"
+                         "所以 k=20 时重排只是把 20 条重新排序、一条不淘汰，等价于「检索 20 条全部进上下文」。"
+                         "本节测的是这个等价陈述在留出集上成立与否。\n")
 
     out = d / "confirm.md"
     out.write_text("\n".join(L) + "\n", encoding="utf-8")
