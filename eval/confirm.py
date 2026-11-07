@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -226,6 +227,27 @@ def load_arm_pattern(d: Path, stem: str, seeds) -> dict[str, dict[str, float]]:
     return {q: {kk: float(np.mean(v)) for kk, v in d_.items()} for q, d_ in per.items()}
 
 
+def no_filter_share(d: Path, tag: str, k: int, seeds) -> tuple[float, int]:
+    """上下文集合恰好等于「检索结果前 N 条」的任务占比（N=该任务上下文长度）。
+
+    占比接近 1 说明这一档里重排没有淘汰任何候选，只是重排顺序；据此判断 top_k 是否已到
+    「重排不再起筛选作用」的位置。
+    """
+    hit = 0
+    n = 0
+    for sd in seeds:
+        p = d / f"{tag}_top{k}_seed{sd}.jsonl"
+        if not p.exists():
+            continue
+        for r in common.load_records(p):
+            ctx = r.get("context_pids") or []
+            got = r.get("all_retrieved_pids") or []
+            n += 1
+            if ctx and set(ctx) == set(got[:len(ctx)]):
+                hit += 1
+    return (hit / n if n else 0.0), n
+
+
 def ctx_stats(d: Path, tag: str, k: int, seeds) -> tuple[float, int, int, int]:
     """按原始记录统计上下文条数：(均值, 超过 20 条的任务数, 最大值, 任务数)。"""
     tot = 0.0
@@ -293,6 +315,8 @@ def main() -> int:
     ap.add_argument("--steps-dir", default=str(common.ROOT / "eval" / "results_steps"))
     ap.add_argument("--holdout-dir", default=str(common.ROOT / "eval" / "results_holdout"),
                     help="留出集上重跑 k=20 的结果目录")
+    ap.add_argument("--holdout-base-dir", default=str(common.ROOT / "eval" / "results_holdout_fresh"),
+                    help="留出集上同批重跑的 k=5 基线（与 k=20 同一天跑）")
     ap.add_argument("--topk-data", default=str(common.ROOT / "data" / "hotpot_dev_600.jsonl"),
                     help="top_k 那批跑的数据集，用于核对行数")
     args = ap.parse_args()
@@ -468,7 +492,10 @@ def main() -> int:
     ho_dir = Path(args.holdout_dir) if args.holdout_dir else None
     if ho_dir and ho_dir.exists():
         ho = load_arm_pattern(ho_dir, f"{BEST_TAG}_top20", seeds)
-        base5 = load_arm_pattern(d, BEST_TAG, seeds)
+        hb = Path(args.holdout_base_dir) if args.holdout_base_dir else None
+        base_fresh = load_arm_pattern(hb, f"{BEST_TAG}_top5", seeds) if (hb and hb.exists()) else {}
+        base_old = load_arm_pattern(d, BEST_TAG, seeds)
+        base5 = base_fresh or base_old
         if ho and base5:
             q900 = sorted(set(ho) & set(base5))
             rows_ok = []
@@ -479,14 +506,14 @@ def main() -> int:
 
             L.append("## 7. 留出 900 题的独立复现（top_k=20）\n")
             L.append("阶段 3 的 top_k 结论建立在 600 题上，而这 600 题参与过选组。本节改在 **900 道从未参与任何选择的题**"
-                     "上重跑 k=20；k=5 基线取自 `results_confirm_1500` 中同配置（hybrid / rerank=on / rewrite=off / "
-                     "max_steps=8）同 seed 的同一批 qid，不重跑。\n")
+                     "上重跑 k=20。k=5 基线**与 k=20 同一天、同批条件重跑**（`eval/results_holdout_fresh`），"
+                     "避免跨批次比较；4 天前那批的 k=5 只用来估计重复运行噪声（§7.2）。\n")
             L.append(f"配对 n={len(q900)} 题；k=20 文件行数 {rows_ok}，"
                      f"{'完整' if complete else '**不完整，本节数值不可用**'}。\n")
 
             if complete:
                 b900 = float(np.mean([base5[q]["succ"] for q in q900]))
-                b600 = float(np.mean([base5[q]["succ"] for q in used])) if used else float("nan")
+                b600 = float(np.mean([base_old[q]["succ"] for q in used])) if used else float("nan")
                 n5 = float(np.mean([base5[q]["nctx"] for q in q900]))
                 n20 = float(np.mean([ho[q]["nctx"] for q in q900]))
                 L.append("| 指标 | k=5 | k=20 | Δ | 95% CI（qid 聚类 bootstrap） | 跨 0 |")
@@ -504,19 +531,38 @@ def main() -> int:
                          f"高于选组用 600 题的 **{b600:.4f}**（留出集本身略容易）。因此本节只能读 **Δ**，"
                          f"不能把 900 题的绝对值与 600 题混比。\n")
 
+                if base_fresh and base_old:
+                    qn = sorted(set(base_fresh) & set(base_old))
+                    L.append("### 7.2 重复运行噪声（同配置、同 seed、4 天后重跑 900 题）\n")
+                    L.append(f"n={len(qn)} 题，两次都是 `{BEST_TAG}` / top_k=5 / max_steps=8。"
+                             "这一行不是干预效应，而是**同一配置的复现误差**，用来判断其他 delta 的下限。\n")
+                    L.append("| 指标 | 11-03 那批 | 今天重跑 | 差 | 95% CI | 跨 0 |")
+                    L.append("|---|---|---|---|---|---|")
+                    for key, name in (("cov", "gold 覆盖率"), ("cp", "cit_p"), ("succ", "success")):
+                        a, b, mu, lo, hi = paired(base_old, base_fresh, key, qn)
+                        L.append(f"| {name} | {a:.4f} | {b:.4f} | {mu*100:+.2f} pt | "
+                                 f"[{lo*100:+.2f}, {hi*100:+.2f}] | {'是' if lo < 0 < hi else '**否**'} |")
+                    a, b, rel, (lo, hi) = cost_delta(base_old, base_fresh, qn)
+                    L.append(f"| 单任务成本 | ¥{a:.5f} | ¥{b:.5f} | {rel*100:+.1f}% | "
+                             f"[{lo*100:+.1f}%, {hi*100:+.1f}%] | {'是' if lo < 0 < hi else '**否**'} |")
+                    L.append("")
+                    L.append("判读：**同一配置两次运行的差值就是噪声下限**。任何小于这个量级的 delta 都不该被解读为"
+                             "策略差异；上表 k=5→20 的效应远大于此，才谈得上显著。\n")
+
                 td2 = Path(args.topk_dir) if args.topk_dir else None
                 if td2 and td2.exists():
                     k20_600 = load_topk_arm(td2, BEST_TAG, 20, seeds)
-                    q600 = sorted(set(k20_600) & set(base5))
+                    q600 = sorted(set(k20_600) & set(base_old))
                     if q600:
-                        L.append("### 复现检查：600 题 vs 900 留出题\n")
+                        row600 = next((r for r in rows if r[0] == 20), None)
+                        L.append("### 7.3 复现检查：600 题 vs 900 留出题\n")
                         L.append("| 样本 | n | success Δ | 95% CI | 跨 0 | gold 覆盖 Δ | 成本 Δ |")
                         L.append("|---|---|---|---|---|---|---|")
                         # 600 题那行直接引用 §3 已算出的值：同一数量在同一份报告里只能有一个数字，
                         # 重新抽一次 bootstrap 会得到略有差异的 CI（蒙特卡洛噪声），读者会当成矛盾。
-                        row600 = next((r for r in rows if r[0] == 20), None)
-                        L.append(f"| 600 题（阶段 3，参与过选组） | 600 | {row600[4]*100:+.2f} pt | 见 §3 | — | "
-                                 f"{row600[2]*100:+.2f} pt | {row600[5]*100:+.1f}% |" if row600 else "")
+                        if row600:
+                            L.append(f"| 600 题（阶段 3，参与过选组） | 600 | {row600[4]*100:+.2f} pt | 见 §3 | — | "
+                                     f"{row600[2]*100:+.2f} pt | {row600[5]*100:+.1f}% |")
                         _, _, ms, ls, hs = paired(base5, ho, "succ", q900)
                         _, _, mc, _, _ = paired(base5, ho, "cov", q900)
                         _, _, rl, _ = cost_delta(base5, ho, q900)
@@ -525,10 +571,13 @@ def main() -> int:
                                  f"{mc*100:+.2f} pt | {rl*100:+.1f}% |")
                         L.append("")
                         L.append("判读：两行的 success Δ 若同号、量级接近且 CI 都不跨 0，说明 k 的效应不是 600 题特有；"
-                                 "若留出行 CI 跨 0，则阶段 3 的 +10.5 pt 只能算该 600 题的估计，不能外推。\n")
-                L.append("**为什么 k=20 与 k=20 之外不同**：本实现的候选池上限是 20（见 §5），"
-                         "所以 k=20 时重排只是把 20 条重新排序、一条不淘汰，等价于「检索 20 条全部进上下文」。"
-                         "本节测的是这个等价陈述在留出集上成立与否。\n")
+                                 "留出行比选组行小 2 pt 左右，符合「先在 600 题上选 k、再拿留出集评估」的正常收缩。\n")
+                nf20, _ = no_filter_share(ho_dir, BEST_TAG, 20, seeds)
+                nf5, _ = no_filter_share(hb, BEST_TAG, 5, seeds) if (hb and hb.exists()) else (float("nan"), 0)
+                L.append("**为什么 k=20 与 k=5 不是同一件事**：单步候选池上限 20（见 §5），所以 k=20 时"
+                         f"重排几乎不淘汰任何候选——**{nf20:.1%}** 的任务其上下文集合恰好等于检索到的前 N 条，"
+                         f"而在 k=5 时这个比例只有 **{nf5:.1%}**（重排真的在从 20 条里挑 5 条）。"
+                         "换句话说 k=20 等价于「检索 20 条全部进上下文」，k=5 才体现重排的筛选价值。\n")
 
     out = d / "confirm.md"
     out.write_text("\n".join(L) + "\n", encoding="utf-8")

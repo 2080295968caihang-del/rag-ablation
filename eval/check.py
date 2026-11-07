@@ -154,6 +154,37 @@ def main() -> int:
             check(not bad_ho, f"留出集 {nho} 行/config=20/无坏终止（异常 {bad_ho[:3]} 共 {len(bad_ho)}）")
             check("留出 900 题" in ct, "confirm 含留出集复现节")
             check("复现检查" in ct, "confirm 含 600 vs 900 复现对照表")
+            check("重复运行噪声" in ct, "confirm 含同配置重跑噪声节")
+        # 同批 k=5 基线（与 k=20 同一天跑），必须完整且配置正确
+        hbd = common.ROOT / "eval" / "results_holdout_fresh"
+        if hbd.exists() and any(hbd.glob("*.jsonl")):
+            nho = len(common.load_samples(common.ROOT / "data" / "hotpot_dev_holdout900.jsonl"))
+            bad_f = []
+            for p_ in sorted(hbd.glob("*_seed*.jsonl")):
+                recs = common.load_records(p_)
+                if len(recs) != nho:
+                    bad_f.append(f"{p_.name}:{len(recs)}/{nho}")
+                if any((r.get("cfg") or {}).get("top_k") != 5 for r in recs):
+                    bad_f.append(f"{p_.name}:cfg_topk!=5")
+                if any(r.get("terminated_by") in ("parse_error", "api_error") for r in recs):
+                    bad_f.append(f"{p_.name}:bad_term")
+            check(not bad_f, f"同批 k=5 基线 {nho} 行/config=5/无坏终止（异常 {bad_f[:3]} 共 {len(bad_f)}）")
+        # 阶段 2 的前 600 题是阶段 1 结果的复制（记账只算一次，README 有注）
+        c1500 = common.ROOT / "eval" / "results_confirm_1500"
+        r600 = common.ROOT / "eval" / "results_600"
+        if c1500.exists() and r600.exists():
+            mism = 0
+            for tag in ("dense_rr-off_rw-off", "hybrid_rr-on_rw-off"):
+                for sd in (42, 43):
+                    a_ = r600 / f"{tag}_seed{sd}.jsonl"
+                    b_ = c1500 / f"{tag}_seed{sd}.jsonl"
+                    if not (a_.exists() and b_.exists()):
+                        continue
+                    amap = {r["qid"]: r for r in common.load_records(a_)}
+                    for r in common.load_records(b_):
+                        if r["qid"] in amap and amap[r["qid"]] != r:
+                            mism += 1
+            check(mism == 0, f"阶段 2 的前 600 题确为阶段 1 复制（不一致 {mism} 条，须逐条相同）")
     else:
         check(args.allow_partial, "confirm.md 存在")
 

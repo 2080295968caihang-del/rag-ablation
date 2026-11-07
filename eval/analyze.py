@@ -423,7 +423,8 @@ def main() -> int:
     if nxt.exists():
         lines.append("## 8. 后续阶段（本文件的结论不是终点）\n")
         lines.append(
-            f"本文件只覆盖阶段 1（8 组筛选 / n={n_samples}）。阶段 2 扩样确认与阶段 3 的 top_k 干预见 "
+            f"本文件只覆盖阶段 1（8 组筛选 / n={n_samples}）。阶段 2 扩样确认、阶段 3 的 top_k 干预、"
+            "阶段 4 单步对照、阶段 5 的留出集复现依次见 "
             f"`eval/results_confirm_1500/confirm.md`，关键修正：n=600 下 CI 跨 0 的 cit_p 效应在 n=1500 "
             f"（含 900 题未参与选组的留出集）为显著 +2.1 pt；真正的大杠杆是上下文槽位数，不是检索算法。\n"
         )
