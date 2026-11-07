@@ -24,6 +24,7 @@ from eval import common  # noqa: E402
 BASE_TAG = "dense_rr-off_rw-off"
 BEST_TAG = "hybrid_rr-on_rw-off"
 N_BOOT = 2000
+CLASSES = ("未召回", "召回未读入", "读入推理错", "引用错配")
 
 
 def load_arm(d: Path, tag: str, seeds) -> dict[str, dict[str, float]]:
@@ -37,7 +38,8 @@ def load_arm(d: Path, tag: str, seeds) -> dict[str, dict[str, float]]:
             s = SAMPLES[r["qid"]]
             f1 = M.f1(r["answer"], s["answer"])
             cp, cr = M.citation_scores(r["citations"], r["context_pids"], s["gold_pids"])
-            slot = per.setdefault(r["qid"], {"cp": [], "cr": [], "succ": [], "f1": [], "cost": [], "cov": []})
+            slot = per.setdefault(r["qid"], {"cp": [], "cr": [], "succ": [], "f1": [], "cost": [], "cov": [], "nctx": []})
+            slot["nctx"].append(len(r.get("context_pids") or []))
             g = set(s["gold_pids"])
             slot["cov"].append(len(g & set(r["context_pids"])) / len(g))
             slot["cp"].append(cp)
@@ -104,6 +106,78 @@ def coverage_table(d: Path, seeds, lines: list[str]) -> None:
     lines.append("")
 
 
+def arm_detail(d: Path, tag: str, k: int | None, seeds) -> dict[str, dict]:
+    """逐 qid 收 success 均值与失败类型列表。k=None 表示无 top 后缀（基线 / 扩样那批）。"""
+    per: dict[str, dict] = {}
+    for sd in seeds:
+        p = d / (f"{tag}_top{k}_seed{sd}.jsonl" if k else f"{tag}_seed{sd}.jsonl")
+        for r in common.load_records(p):
+            s = SAMPLES[r["qid"]]
+            f1 = M.f1(r["answer"], s["answer"])
+            cp, _ = M.citation_scores(r["citations"], r["context_pids"], s["gold_pids"])
+            slot = per.setdefault(r["qid"], {"succ": [], "cls": []})
+            slot["succ"].append(M.is_success(f1, cp))
+            slot["cls"].append(M.failure_class(r, s["gold_pids"], f1, cp))
+    return per
+
+
+def class_of(detail: dict) -> str | None:
+    """qid 级主类型：取该 qid 各 seed 失败类型里最常见的；全成功返回 None。"""
+    cs = [c for c in detail["cls"] if c in CLASSES]
+    if not cs:
+        return None
+    return max(set(cs), key=cs.count)
+
+
+def ok_of(detail: dict) -> bool:
+    return float(np.mean(detail["succ"])) >= 0.5
+
+
+def failure_section(base_detail: dict, arms: dict[int, dict], L: list[str]) -> None:
+    """k=5 相对各 top_k 档的失败类型转移 + 逐类型转化率。"""
+    L.append("## 4. 失败类型转移（机制：+10.5 pt 是从哪一类里抠出来的）\n")
+    L.append("| top_k | 失败数 | 未召回 | 召回未读入 | 读入推理错 | 引用错配 |")
+    L.append("|---|---|---|---|---|---|")
+    rows = [(5, base_detail)] + [(k, v) for k, v in sorted(arms.items())]
+    for k, det in rows:
+        cnt = {c: 0 for c in CLASSES}
+        for dq in det.values():
+            for c in dq["cls"]:
+                if c in cnt:
+                    cnt[c] += 1
+        tot = sum(cnt.values())
+        cells = " | ".join(
+            f"{cnt[c]} ({cnt[c]/tot*100:.0f}%)" if tot else "0 (—)" for c in CLASSES
+        )
+        L.append(f"| {k} | {tot} | {cells} |")
+    L.append("")
+    L.append("_分母 = 该档全部失败记录数（含 2 个 seed）；类型由 `metrics.failure_class` 单一规则判定，未做人工校验。_\n")
+
+    for k, det in sorted(arms.items()):
+        qs = sorted(set(base_detail) & set(det))
+        if not qs:
+            continue
+        f2s = [q for q in qs if not ok_of(base_detail[q]) and ok_of(det[q])]
+        s2f = [q for q in qs if ok_of(base_detail[q]) and not ok_of(det[q])]
+        n_fail5 = sum(1 for q in qs if not ok_of(base_detail[q]))
+        n_ok5 = len(qs) - n_fail5
+        L.append(f"### 4.{sorted(arms).index(k)+1} k=5 → k={k}\n")
+        L.append(
+            f"- 失败→成功 **{len(f2s)}/{n_fail5}（{len(f2s)/max(1,n_fail5)*100:.1f}%）**；"
+            f"成功→失败 {len(s2f)}/{n_ok5}（{len(s2f)/max(1,n_ok5)*100:.1f}%）"
+        )
+        L.append("")
+        L.append(f"| k=5 时的失败类型 | 题数 | 到 k={k} 转为成功 | 转化率 |")
+        L.append("|---|---|---|---|")
+        for c in CLASSES:
+            grp = [q for q in qs if not ok_of(base_detail[q]) and class_of(base_detail[q]) == c]
+            if not grp:
+                continue
+            conv = sum(1 for q in grp if ok_of(det[q]))
+            L.append(f"| {c} | {len(grp)} | {conv} | {conv/len(grp)*100:.1f}% |")
+        L.append("")
+
+
 def check_complete(d: Path, tag: str, k: int | None, seeds, expected: int) -> str:
     """确认每个 seed 文件都是满的；返回告警文本（空串=齐）。"""
     bad = []
@@ -142,7 +216,8 @@ def load_topk_arm(d: Path, tag: str, k: int, seeds) -> dict[str, dict[str, float
             s = SAMPLES[r["qid"]]
             f1 = M.f1(r["answer"], s["answer"])
             cp, _ = M.citation_scores(r["citations"], r["context_pids"], s["gold_pids"])
-            slot = per.setdefault(r["qid"], {"cp": [], "succ": [], "cost": [], "cov": []})
+            slot = per.setdefault(r["qid"], {"cp": [], "succ": [], "cost": [], "cov": [], "nctx": []})
+            slot["nctx"].append(len(r.get("context_pids") or []))
             slot["cp"].append(cp)
             slot["succ"].append(M.is_success(f1, cp))
             slot["cost"].append(r["cost_cny"])
@@ -248,22 +323,51 @@ def main() -> int:
                 L.append(f"| 单任务成本 | ¥{a:.5f} | ¥{b:.5f} | {rel*100:+.1f}% | "
                          f"[{lo*100:+.1f}%, {hi*100:+.1f}%] | {'是' if lo < 0 < hi else '**否**'} |")
                 L.append("")
-                rows.append((k, cov_arm, cov_mu, succ_arm, succ_mu, rel))
+                nctx = float(np.mean([tk[q]["nctx"] for q in qs]))
+                rows.append((k, cov_arm, cov_mu, succ_arm, succ_mu, rel, nctx))
 
             if len(rows) >= 2:
+                nctx5 = float(np.mean([base5[q]["nctx"] for q in
+                                       sorted(set(ktab[rows[0][0]]) & set(base5))]))
                 base_cov = paired(base5, ktab[rows[0][0]], "cov", sorted(set(ktab[rows[0][0]]) & set(base5)), rng)[0]
                 base_succ = paired(base5, ktab[rows[0][0]], "succ", sorted(set(ktab[rows[0][0]]) & set(base5)), rng)[0]
                 base_cost = np.mean([base5[q]["cost"] for q in
                                      sorted(set(ktab[rows[0][0]]) & set(base5))])
                 L.append("### 饱和检查\n")
-                L.append("| top_k | gold 覆盖率 | Δcov vs k=5 | success | Δsucc vs k=5 | 单任务成本 | 成本 vs k=5 |")
-                L.append("|---|---|---|---|---|---|---|")
-                L.append(f"| 5 | {base_cov*100:.1f}% | — | {base_succ:.3f} | — | ¥{base_cost:.5f} | — |")
-                for k, cov_arm, cov_mu, succ_arm, succ_mu, rel in rows:
-                    L.append(f"| {k} | {cov_arm*100:.1f}% | {cov_mu*100:+.2f} pt | {succ_arm:.3f} | "
-                             f"{succ_mu*100:+.2f} pt | ¥{base_cost*(1+rel):.5f} | {rel*100:+.1f}% |")
+                L.append("| top_k | 平均上下文条数 | gold 覆盖率 | Δcov vs k=5 | success | Δsucc vs k=5 | 单任务成本 | 成本 vs k=5 | 有效对照 |")
+                L.append("|---|---|---|---|---|---|---|---|---|")
+                L.append(f"| 5 | {nctx5:.1f} | {base_cov*100:.1f}% | — | {base_succ:.3f} | — | ¥{base_cost:.5f} | — | — |")
+                prev = nctx5
+                for k, cov_arm, cov_mu, succ_arm, succ_mu, rel, nctx in rows:
+                    gap = nctx - prev
+                    okc = "是" if gap >= 1.0 else f"**否（+{gap:.1f} 条）**"
+                    L.append(f"| {k} | {nctx:.1f} | {cov_arm*100:.1f}% | {cov_mu*100:+.2f} pt | {succ_arm:.3f} | "
+                             f"{succ_mu*100:+.2f} pt | ¥{base_cost*(1+rel):.5f} | {rel*100:+.1f}% | {okc} |")
+                    prev = nctx
                 L.append("")
+                L.append("**有效对照**列 = 该档平均上下文条数比上一档是否多出至少 1 条。若为否，说明这一档实际没改到槽位"
+                         "（多为检索/重排候选池被硬编码截断），**不能用来判定饱和**。")
+                L.append("")
+                bad = [r[0] for i, r in enumerate(rows) if r[6] - (nctx5 if i == 0 else rows[i-1][6]) < 1.0]
+                if bad:
+                    L.append(f"⚠️ **top_k={bad} 不是有效对照**：实测平均上下文条数与上一档几乎相同，"
+                             f"饱和结论不成立，真实饱和点尚未测到。见下方「候选池约束」。\n")
                 L.append("判读规则：Δcov/Δsucc 从 k 到 2k 的增量若不足前一段的一半，视为饱和，不再加槽位。\n")
+                arms_detail = {kk: arm_detail(td, BEST_TAG, kk, seeds) for kk in ktab}
+                failure_section(arm_detail(d, BEST_TAG, None, seeds), arms_detail, L)
+                L.append("## 5. 候选池约束（为什么 k=40 无效，真实饱和点怎么测）\n")
+                L.append("`app/agent.py:116`：`cands = retrieve(index, q, k=20 if rerank else top_k)` —— "
+                         "开启重排时候选池**硬编码 20 条**，`rerank` 再从中取 `top_k`。因此 `top_k > 20` 在本实现里"
+                         "不可能增加上下文（实测 k=40 平均 20.1 条），这一档只能当重复测量用，不能当饱和证据。\n")
+                L.append("- **受影响**：「k=20 之后是否继续涨」未知。")
+                L.append("- **不受影响**：k=5→10→20 三档都是有效对照（上下文 5.0 / 10.0 / 19.9），"
+                         "覆盖率与成功率的因果链成立。")
+                L.append("- **要测真实饱和点**：把该常数提成参数（如 `--cand-k`），重跑 k=20/30/50；"
+                         "3 档 × 600 题 × 2 seed ≈ ¥5。")
+                L.append("- **意外的用处**：k=40 与 k=20 实质是同一配置的两次近似重复运行（上下文 20.1 vs 19.9 条），"
+                         "success 0.789 vs 0.792、成本差 3.1%。这部分差异来自服务端非确定性 + 0.2 条上下文，"
+                         "可当作**本管线的重复运行噪声量级（≈0.3 pt / 3%）**，用于判断其他 delta 的下限；"
+                         "但它只有一对样本，不是严格的重复性实验。\n")
 
     out = d / "confirm.md"
     out.write_text("\n".join(L) + "\n", encoding="utf-8")

@@ -106,6 +106,8 @@ def main() -> int:
         check("gold 注入" in txt, "summary 有 gold 注入对照")
         need_ci = 1 if args.allow_partial else 7
         check(txt.count(" pt [") >= need_ci, f"delta 行带 CI（{txt.count(' pt [')} 处，需 ≥{need_ci}）")
+        check("工具调用步数分布" in txt, "summary 有 tool_calls 步数分布")
+        check("后续阶段" in txt, "summary 指向 confirm.md（避免两份结论打架）")
     else:
         check(args.allow_partial, "summary.md 存在")
 
@@ -115,6 +117,8 @@ def main() -> int:
     if conf.exists():
         ct = conf.read_text(encoding="utf-8")
         check("留出集（未参与选组）" in ct, "confirm 有留出集行")
+        check("有效对照" in ct and "候选池约束" in ct, "confirm 有槽位有效性与候选池约束说明")
+        check("失败类型转移" in ct, "confirm 有失败类型转移（机制证据）")
         check(ct.count(" pt ") >= 10, f"confirm 带 CI 行数（{ct.count(' pt ')} 处）")
         tkd = common.ROOT / "eval" / "results_topk"
         if tkd.exists():

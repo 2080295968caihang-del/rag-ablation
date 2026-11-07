@@ -286,8 +286,35 @@ def main() -> int:
     else:
         lines.append("_未跑 gold 注入对照（`python eval/sweep.py --gold --only dense --seeds 42`）。_\n")
 
+    # ---- 工具调用步数分布 ----
+    lines.append("## 5. 工具调用步数分布（多步循环实际用了几步）\n")
+    lines.append("| config | 平均 tool_calls | 1 步占比 | 分布（调用次数:任务数） |")
+    lines.append("|---|---|---|---|")
+    for combo in combos:
+        if combo not in data:
+            continue
+        cnt: dict[int, int] = {}
+        n = 0
+        for seed in seeds:
+            for rec in common.load_records(common.result_path(common.tag_of(*combo), seed)):
+                k = int(rec.get("tool_calls") or 1)
+                cnt[k] = cnt.get(k, 0) + 1
+                n += 1
+        if not n:
+            continue
+        avg = sum(k * v for k, v in cnt.items()) / n
+        one = cnt.get(1, 0) / n * 100
+        dist = ", ".join(f"{k}:{cnt[k]}" for k in sorted(cnt))
+        lines.append(f"| {common.label_of(*combo)} | {avg:.2f} | {one:.1f}% | {dist} |")
+    lines.append("")
+    lines.append(
+        "_读法_：`tool_calls` 是单任务内的 LLM 调用次数。多数任务 1 次即收口时，"
+        "「多步循环」实际更接近单发检索+作答，多轮只在少部分任务上触发；改写的步数天然更高，"
+        "这也是它成本更贵的机制之一，而不只是 prompt 变长。\n"
+    )
+
     # ---- 结论 ----
-    lines.append("## 5. 结论\n")
+    lines.append("## 6. 结论\n")
     ranked = sorted(data.items(), key=lambda kv: -kv[1]["agg"]["cit_p"])
     best_combo, best = ranked[0]
     lines.append(
@@ -339,7 +366,7 @@ def main() -> int:
     )
 
     # ---- 简历回填 ----
-    lines.append("## 6. 简历回填（6 个字段，附来源）\n")
+    lines.append("## 7. 简历回填（6 个字段，附来源）\n")
     mp = common.RESULTS / "manifest.json"
     total_cost = 0.0
     if mp.exists():
@@ -391,6 +418,15 @@ def main() -> int:
             lines.append("**可替代的真实结论（CI 不跨 0）**：\n")
             lines.extend(alt)
             lines.append("")
+
+    nxt = common.ROOT / "eval" / "results_confirm_1500" / "confirm.md"
+    if nxt.exists():
+        lines.append("## 8. 后续阶段（本文件的结论不是终点）\n")
+        lines.append(
+            f"本文件只覆盖阶段 1（8 组筛选 / n={n_samples}）。阶段 2 扩样确认与阶段 3 的 top_k 干预见 "
+            f"`eval/results_confirm_1500/confirm.md`，关键修正：n=600 下 CI 跨 0 的 cit_p 效应在 n=1500 "
+            f"（含 900 题未参与选组的留出集）为显著 +2.1 pt；真正的大杠杆是上下文槽位数，不是检索算法。\n"
+        )
 
     out = Path(args.out) if args.out else common.RESULTS / "summary.md"
     out.write_text("\n".join(lines), encoding="utf-8")
