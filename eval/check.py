@@ -188,9 +188,30 @@ def main() -> int:
     else:
         check(args.allow_partial, "confirm.md 存在")
 
+    # ---- 4.9 设计文档（数据 / 参数 / 技术栈 / 进度）----
+    dz = common.ROOT / "DESIGN.md"
+    check(dz.exists(), "DESIGN.md 存在")
+    if dz.exists():
+        dt = dz.read_text(encoding="utf-8")
+        for sec in ("## 1. 数据", "## 2. 参数", "## 3. 技术栈", "## 4. 当前进度"):
+            check(sec in dt, f"DESIGN 含「{sec[3:]}」节")
+        check("22,200" in dt and "22.25" in dt, "DESIGN 的成本口径与 README 一致（22,200 / ¥22.25）")
+        # 未验证的东西必须自己承认，不许写成实测结论
+        check("未实测" in dt or "未调参" in dt, "DESIGN 明确标注了未验证/未调参项")
+        # 数据集规模：DESIGN 表里的段落总数必须与数据文件重算结果一致
+        import json as _json
+        for fname, want in (("hotpot_dev_100.jsonl", "3,883"),
+                            ("hotpot_dev_600.jsonl", "24,519"),
+                            ("hotpot_dev_1500.jsonl", "61,992"),
+                            ("hotpot_dev_holdout900.jsonl", "37,473")):
+            fp = common.ROOT / "data" / fname
+            if not fp.exists():
+                continue
+            tot = sum(len(_json.loads(l)["passages"]) for l in fp.open(encoding="utf-8") if l.strip())
+            check(f"{tot:,}" == want, f"DESIGN 中 {fname} 段落总数 {want} 与实测 {tot:,} 一致")
+
     # ---- 5. 指标口径复算 ----
     from app import metrics
-
     check(abs(metrics.f1("yes", "yes") - 1.0) < 1e-9, "f1 自反=1")
     check(abs(metrics.f1("no", "yes")) < 1e-9, "f1 无关=0")
     p, r = metrics.citation_scores([1, 3], [10, 20, 30], [10, 30])

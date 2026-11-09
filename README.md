@@ -2,6 +2,8 @@
 
 HotpotQA（distractor）上量化**检索策略**对 Agent 端到端成功率 / 引用准确性 / 单次成本的影响。
 
+> 数据构造、每个参数的取值理由、技术栈选型与被排除的替代方案：见 [`DESIGN.md`](DESIGN.md)。
+
 五阶段，共 **22,200 次 Agent 任务、总成本 ¥22.25**（已去重：阶段 2 的前 600 题是阶段 1 的复制，只计一次）：
 
 | 阶段 | 问题 | 规模 | 产物 |
@@ -13,7 +15,7 @@ HotpotQA（distractor）上量化**检索策略**对 Agent 端到端成功率 / 
 | 5 留出复现 | k 的效应是不是只在选组那 600 题上 | 900 道未参与选择的题上重跑 k=20 + 同批 k=5 基线（3,600 条 / ¥4.05） | 同上 §7 |
 
 ```bash
-./.venv/Scripts/python.exe eval/check.py          # 48 项断言，全绿才算完成
+./.venv/Scripts/python.exe eval/check.py          # 59 项断言，全绿才算完成
 ```
 
 ## 一套命令重跑
@@ -26,7 +28,7 @@ cp .env.example .env            # 填 DEEPSEEK_API_KEY（35 位，sk- 开头，�
 ./.venv/Scripts/python.exe eval/run.py --mock --limit 3    # 不花钱验证全链路
 ./.venv/Scripts/python.exe eval/sweep.py --seeds 42,43 --workers 4   # 8 组 × 2 seed × 600 条 = 9600 任务
 ./.venv/Scripts/python.exe eval/analyze.py                 # 出 summary.md
-./.venv/Scripts/python.exe eval/check.py                   # 全绿（48 项）才算完成
+./.venv/Scripts/python.exe eval/check.py                   # 全绿（59 项）才算完成
 ```
 
 单组单 seed 一条命令：
@@ -177,7 +179,8 @@ models/           嵌入 + 重排模型缓存（gitignore）
     差距（约 3.5–7 pt）就是剩余检索损失 + 引用错配，不是"槽位还不够"。
 11. **多步对照有一个设计副作用**：`max_steps=1` 时若模型仍要求追加检索，循环会退出且答案为空——
     已加「步数耗尽强制收口一次」（`terminated_by=forced_answer`），否则单步组会被系统性压低成假负效应。
-    该兜底只影响历史上 20/13,800 条命中 `max_steps` 的记录，旧数据未重跑。
+    全量 23,400 条记录里只有 36 条（0.15%）命中 `max_steps`；单步组 1,200 条里有 **263 条（21.9%）** 靠这个兜底
+    才拿到答案 —— 与多步组「21.6% 的任务需要 >1 步」两个独立口径吻合。旧数据未重跑。
 
 ## 事故记录：成本计量 bug（已修复，数据已重跑）
 
@@ -249,7 +252,7 @@ models/           嵌入 + 重排模型缓存（gitignore）
   改为线程局部累加器并重跑全部数据。
 - **R**：改写 -3.1 pt（CI 不跨 0）；top_k 5→20 成功率 +10.5 pt（CI [+7.7, +13.4]），并在 900 道未参与选择的题上
   复现为 +8.5 pt（CI [+6.2, +10.8]）；留出集确认 hybrid+rerank +2.83 pt（CI [+0.67, +5.06]）。
-  全部结论由 48 项断言脚本 + manifest（sha / 单价 / 逐条成本）背书。
+  全部结论由 59 项断言脚本 + manifest（sha / 单价 / 逐条成本）背书。
 
 **可强调的工程细节**（面试常追问的点）：
 
