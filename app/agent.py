@@ -70,6 +70,9 @@ def run_task(sample: dict, cfg: dict) -> dict:
     question = sample["question"]
     top_k = int(cfg.get("top_k", 5))
     max_steps = int(cfg.get("max_steps", 8))
+    # 候选池大小：None=旧行为（rerank 取 20，否则取 top_k）；<=0=该题全部候选；>0=取 max(cand_k, top_k)。
+    # 旧行为把 20 写死，导致 top_k=40 时上下文也只有 20 条 —— 那组「k=40」其实是无效对照。
+    cand_k = cfg.get("cand_k")
     use_rr = bool(cfg.get("rerank"))
     use_rw = bool(cfg.get("rewrite"))
     mode = cfg.get("retriever", "dense")
@@ -113,7 +116,13 @@ def run_task(sample: dict, cfg: dict) -> dict:
         for step in range(max_steps):
             new = 0
             for q in queries:
-                cands = retrievers.retrieve(index, q, k=20 if use_rr else top_k, mode=mode)
+                if cand_k is None:
+                    k_ret = 20 if use_rr else top_k
+                elif int(cand_k) <= 0:
+                    k_ret = 10 ** 6  # retrieve 内部会 clamp 到该题候选总数
+                else:
+                    k_ret = max(int(cand_k), top_k)
+                cands = retrievers.retrieve(index, q, k=k_ret, mode=mode)
                 tool_calls += 1
                 all_retrieved.extend(c["pid"] for c in cands)
                 if use_rr:
@@ -204,7 +213,7 @@ def run_task(sample: dict, cfg: dict) -> dict:
     return {
         "qid": qid,
         "cfg": {"retriever": mode, "rerank": use_rr, "rewrite": use_rw, "top_k": top_k,
-                "max_steps": max_steps, "mock": mock, "gold_inject": gold_inject},
+                "cand_k": cand_k, "max_steps": max_steps, "mock": mock, "gold_inject": gold_inject},
         "seed": cfg.get("seed"),
         "answer": answer,
         "citations": citations,

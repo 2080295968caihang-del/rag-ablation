@@ -195,7 +195,27 @@ def main() -> int:
         dt = dz.read_text(encoding="utf-8")
         for sec in ("## 1. 数据", "## 2. 参数", "## 3. 技术栈", "## 4. 当前进度"):
             check(sec in dt, f"DESIGN 含「{sec[3:]}」节")
-        check("22,200" in dt and "22.25" in dt, "DESIGN 的成本口径与 README 一致（22,200 / ¥22.25）")
+        # 总账不能手写：直接按「逐条 cost 求和 + 去重」现算，再要求两份文档都引用同一个数。
+        # 去重规则：results_confirm_1500 里前 600 题的记录是阶段 1 的复制（同配置同 seed，逐条相同）。
+        import json as _json
+        f600 = {s["qid"] for s in common.load_samples(common.ROOT / "data" / "hotpot_dev_600.jsonl")}
+        _n = _c = _dn = _dc = 0
+        for _d in (common.ROOT / "eval").glob("results_*"):
+            for _p in _d.glob("*.jsonl"):
+                for _line in _p.open(encoding="utf-8"):
+                    if not _line.strip():
+                        continue
+                    _r = _json.loads(_line)
+                    _cost = float(_r.get("cost_cny") or 0)
+                    _n += 1
+                    _c += _cost
+                    if _d.name == "results_confirm_1500" and _r["qid"] in f600:
+                        _dn += 1
+                        _dc += _cost
+        want_n, want_c = f"{_n - _dn:,}", f"¥{_c - _dc:.2f}"
+        rt = (common.ROOT / "README.md").read_text(encoding="utf-8")
+        check(want_n in rt and want_c in rt, f"README 的总账与数据现算一致（{want_n} / {want_c}）")
+        check(want_n in dt and want_c in dt, f"DESIGN 的总账与 README 一致（{want_n} / {want_c}）")
         # 未验证的东西必须自己承认，不许写成实测结论
         check("未实测" in dt or "未调参" in dt, "DESIGN 明确标注了未验证/未调参项")
         # 数据集规模：DESIGN 表里的段落总数必须与数据文件重算结果一致
@@ -258,11 +278,67 @@ def main() -> int:
                 check(ok, f"{name} 引用的 {label} 与 confirm.md 一致（Δ {dcell} / CI {ccell}）")
 
         # 已作废的旧数字不得再出现在文档里
-        stale = ("[+0.39, +3.78]", "[+0.67, +5.06]", "[+6.2, +10.8]", "69.7%")
+        stale = ("[+0.39, +3.78]", "[+0.67, +5.06]", "[+6.2, +10.8]", "69.7%",
+                 "929→253", "153 条归零", "k=20 之后没测到")
         for name, txt in docs.items():
             flat = _flat(txt)
             bad = [s for s in stale if _flat(s) in flat]
             check(not bad, f"{name} 不含已作废的数字（发现 {bad}）")
+
+        # ---- 5b. E1 追加实验：产物存在性 + 配置正确性 ----
+        cross = common.ROOT / "eval" / "results_cross"
+        bad_x = []
+        for sd in (42, 43):
+            p_ = cross / f"dense_rr-off_rw-off_top20_seed{sd}.jsonl"
+            if not p_.exists():
+                bad_x.append(f"{p_.name}:缺失")
+                continue
+            recs = common.load_records(p_)
+            if len(recs) != n600:
+                bad_x.append(f"{p_.name}:{len(recs)}/{n600}")
+            for r in recs:
+                c_ = r.get("cfg") or {}
+                if c_.get("retriever") != "dense" or c_.get("top_k") != 20:
+                    bad_x.append(f"{p_.name}:cfg")
+                    break
+        check(not bad_x, f"dense 交叉验证 1,200 条且配置正确（异常 {bad_x[:3]}）")
+
+        # 每档 top_k 必须真把槽位开到位：cand_k 显式给值，且 >= top_k（或 0 = 全部候选）
+        bad_c = []
+        for k_, ck_ in ((10, None), (20, None), (30, 30), (40, None), (50, 50), (200, 0)):
+            for sd in (42, 43):
+                p_ = tkd / f"hybrid_rr-on_rw-off_top{k_}_seed{sd}.jsonl"
+                if not p_.exists():
+                    bad_c.append(f"top{k_}/seed{sd}:缺失")
+                    continue
+                for r in common.load_records(p_):
+                    c_ = r.get("cfg") or {}
+                    if c_.get("top_k") != k_ or c_.get("cand_k") != ck_:
+                        bad_c.append(f"top{k_}/seed{sd}:cfg={c_.get('top_k')}/{c_.get('cand_k')}")
+                        break
+        check(not bad_c, f"top_k 各档的 cfg 与其档位一致（异常 {bad_c[:3]} 共 {len(bad_c)}）")
+
+        # 饱和结论必须是报告算出来的，不是文档里手写的
+        check("饱和点 = top_k=30 的上一档" in ct, "confirm 的饱和判据算出的拐点是 k=30 的上一档")
+        check("检索环节的天花板" in ct, "confirm 记录「检索做到 100% 覆盖率时的 success 上限」")
+        for nm, need in (("extra_arms.md", "第 3 个 seed"), ("metric_robust.md", "宽松"),
+                         ("cite_audit.md", "引用错配"), ("failure_audit.md", "抽检"),
+                         ("manual_audit.md", "脚本判定")):
+            f_ = common.ROOT / "eval" / "results_topk" / nm
+            check(f_.exists() and need in f_.read_text(encoding="utf-8"), f"{nm} 存在且含「{need}」")
+
+        # 跨配置数字：README 与 cross_config.md 必须同源
+        cc = common.ROOT / "eval" / "results_cross" / "cross_config.md"
+        if cc.exists():
+            cct = _flat(cc.read_text(encoding="utf-8"))
+            row = next((l for l in cc.read_text(encoding="utf-8").splitlines()
+                        if l.startswith("| dense / off / off")), "")
+            # 该行有多个 Δ（覆盖率/成功率/成本），只有 success 那格加粗，取加粗的那个
+            bold = re.findall(r"\*\*([+-]\d+\.\d+ pt)\*\*", row)
+            nums = bold or re.findall(r"[+-]\d+\.\d+ pt", row)
+            check(bool(nums), "cross_config 的 dense 行有加粗的 Δsucc")
+            check(nums and _flat(nums[0]) in _flat(docs["README.md"]),
+                  f"README 引用的 dense 交叉 Δsucc 与 cross_config 一致（{nums[0] if nums else '—'}）")
 
         # 阈值敏感性表里 T=0.50 那行必须与 confirm.md §3.2 主表逐位一致
         c_d, c_ci = _cell("| success | 0.6842 | 0.7892", 3), _cell("| success | 0.6842 | 0.7892", 4)

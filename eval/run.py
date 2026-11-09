@@ -66,6 +66,8 @@ def main() -> int:
     ap.add_argument("--rewrite", default="off", choices=["on", "off"])
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--top-k", type=int, default=5)
+    ap.add_argument("--cand-k", type=int, default=None,
+                    help="候选池大小；不传=旧行为（rerank 取 20，否则取 top_k），0=该题全部候选")
     ap.add_argument("--max-steps", type=int, default=8)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--mock", action="store_true")
@@ -91,6 +93,7 @@ def main() -> int:
         "rerank": rr,
         "rewrite": rw,
         "top_k": args.top_k,
+        "cand_k": args.cand_k,
         "max_steps": args.max_steps,
         "mock": args.mock,
         "gold_inject": args.gold,

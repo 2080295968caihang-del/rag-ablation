@@ -152,13 +152,22 @@ def ok_of(detail: dict) -> bool:
 def failure_section(base_detail: dict, arms: dict[int, dict], L: list[str]) -> None:
     """k=5 相对各 top_k 档的失败类型转移 + 逐类型转化率。"""
     L.append("## 4. 失败类型转移（机制：+10.5 pt 是从哪一类里抠出来的）\n")
-    L.append("| top_k | 失败数 | 未召回 | 召回未读入 | 读入推理错 | 引用错配 |")
+    # 分母必须统一：base 是 1,500 题、各 top_k 档是 600 题，直接相加会把 3,000 条记录的类别数
+    # 和 1,200 条记录的类别数放进同一张表（旧版就这样，k=5 记 929 条、k=10 记 307 条）。
+    # 这里先取所有档位共有的 qid 交集，再统计。
+    qcommon = set(base_detail)
+    for det in arms.values():
+        qcommon &= set(det)
+    qcommon = sorted(qcommon)
+    L.append(f"统计口径：下面每行都用**同一批 {len(qcommon)} 题**（各档位 qid 交集），"
+             "失败数与类型均为**记录级**（含 2 个 seed）；下一小节是**题级**。\n")
+    L.append("| top_k | 失败记录数 | 未召回 | 召回未读入 | 读入推理错 | 引用错配 |")
     L.append("|---|---|---|---|---|---|")
     rows = [(5, base_detail)] + [(k, v) for k, v in sorted(arms.items())]
     for k, det in rows:
         cnt = {c: 0 for c in CLASSES}
-        for dq in det.values():
-            for c in dq["cls"]:
+        for dq in qcommon:
+            for c in det[dq]["cls"]:
                 if c in cnt:
                     cnt[c] += 1
         tot = sum(cnt.values())
@@ -167,7 +176,7 @@ def failure_section(base_detail: dict, arms: dict[int, dict], L: list[str]) -> N
         )
         L.append(f"| {k} | {tot} | {cells} |")
     L.append("")
-    L.append("_分母 = 该档全部失败记录数（含 2 个 seed）；类型由 `metrics.failure_class` 单一规则判定，未做人工校验。_\n")
+    L.append("_类型由 `metrics.failure_class` 单一规则判定，已做 20 条人工抽检（见 `eval/results_topk/manual_audit.md`）。_\n")
 
     for k, det in sorted(arms.items()):
         qs = sorted(set(base_detail) & set(det))
@@ -417,55 +426,92 @@ def main() -> int:
                 base_cost = np.mean([base5[q]["cost"] for q in
                                      sorted(set(ktab[rows[0][0]]) & set(base5))])
                 L.append("### 饱和检查\n")
-                L.append("| top_k | 平均上下文条数 | gold 覆盖率 | Δcov vs k=5 | success | Δsucc vs k=5 | 单任务成本 | 成本 vs k=5 | 有效对照 |")
-                L.append("|---|---|---|---|---|---|---|---|---|")
-                L.append(f"| 5 | {nctx5:.1f} | {base_cov*100:.1f}% | — | {base_succ:.3f} | — | ¥{base_cost:.5f} | — | — |")
+                L.append("| top_k | 平均上下文条数 | gold 覆盖率 | Δcov vs k=5 | success | Δsucc vs k=5 "
+                         "| Δcov 较上一档 | Δsucc 较上一档 | 单任务成本 | 成本 vs k=5 | 有效对照 |")
+                L.append("|---|---|---|---|---|---|---|---|---|---|---|")
+                L.append(f"| 5 | {nctx5:.1f} | {base_cov*100:.1f}% | — | {base_succ:.3f} | — | — | — | "
+                         f"¥{base_cost:.5f} | — | — |")
                 prev = nctx5
+                prev_cov, prev_succ = base_cov, base_succ
+                prev_k: int | None = None
+                incs: list[tuple[int, float, float, float, float, float]] = []  # k,Δcov,Δsucc,gap,lo,hi
                 for k, cov_arm, cov_mu, succ_arm, succ_mu, rel, nctx in rows:
                     gap = nctx - prev
                     okc = "是" if gap >= 1.0 else f"**否（+{gap:.1f} 条）**"
+                    d_cov, d_succ = cov_arm - prev_cov, succ_arm - prev_succ
+                    # 相邻档的 Δsucc 必须带 CI：只报点估计会把 0.25 pt 的抖动当成「还在涨」
+                    ref = ktab[prev_k] if prev_k is not None else base5
+                    qsq = sorted(set(ktab[k]) & set(ref))
+                    _, _, mu_a, lo_a, hi_a = paired(ref, ktab[k], "succ", qsq)
                     L.append(f"| {k} | {nctx:.1f} | {cov_arm*100:.1f}% | {cov_mu*100:+.2f} pt | {succ_arm:.3f} | "
-                             f"{succ_mu*100:+.2f} pt | ¥{base_cost*(1+rel):.5f} | {rel*100:+.1f}% | {okc} |")
-                    prev = nctx
+                             f"{succ_mu*100:+.2f} pt | {d_cov*100:+.2f} pt | "
+                             f"**{mu_a*100:+.2f} pt** [{lo_a*100:+.2f}, {hi_a*100:+.2f}] | "
+                             f"¥{base_cost*(1+rel):.5f} | {rel*100:+.1f}% | {okc} |")
+                    incs.append((k, d_cov, mu_a, gap, lo_a, hi_a))
+                    # 无效对照（上下文没比上一档多）不推进链条，否则后面的档会拿它当基准。
+                    # 例：k=40 是旧代码跑的（20.1 条），若推进，k=50 的边际就会被算成 40→50。
+                    if gap >= 1.0:
+                        prev, prev_cov, prev_succ, prev_k = nctx, cov_arm, succ_arm, k
                 L.append("")
+                L.append("「较上一档」两列才是饱和判据：它把每一档的**边际**增益单独列出来，"
+                         "避免只看「vs k=5」时后段增益被前段掩盖。最后两列是该边际增益的同题配对 95% CI。\n")
                 L.append("**有效对照**列 = 该档平均上下文条数比上一档是否多出至少 1 条。若为否，说明这一档实际没改到槽位"
-                         "（多为检索/重排候选池被硬编码截断），**不能用来判定饱和**。")
+                         "（多为检索/重排候选池被截断），**不能用来判定饱和**。")
                 L.append("")
                 bad = [r[0] for i, r in enumerate(rows) if r[6] - (nctx5 if i == 0 else rows[i-1][6]) < 1.0]
                 if bad:
                     L.append(f"⚠️ **top_k={bad} 不是有效对照**：实测平均上下文条数与上一档几乎相同，"
-                             f"饱和结论不成立，真实饱和点尚未测到。见下方「候选池约束」。\n")
-                L.append("判读规则：Δcov/Δsucc 从 k 到 2k 的增量若不足前一段的一半，视为饱和，不再加槽位。\n")
+                             f"不能用它判定饱和（见下方「候选池约束」）。\n")
+                good = [x for x in incs if x[3] >= 1.0]
+                if len(good) >= 1:
+                    # 判据只看 success 的边际增益：覆盖率继续涨但不转化为成功率，正是「边际失效」的定义。
+                    # 噪声下限 0.9 pt 来自同配置重跑实测（§7.2 success 0.00 pt / cit_p +0.74 pt）。
+                    # 判据：边际 Δsucc 落在噪声区间（<0.9 pt）**或** CI 跨 0（不显著）→ 视为不再涨。
+                    # 只看点估计会把 +1.08 pt [-0.42,+2.67] 这种「方向对但不显著」的档误判成「还在涨」。
+                    sat = next((x for x in good if abs(x[2]) < 0.009 or (x[4] < 0 < x[5])), None)
+                    if sat:
+                        L.append(f"判据（噪声下限 success 0.9 pt，或 CI 跨 0 视为不显著）：top_k={sat[0]} 相对上一档的边际 Δsucc = "
+                                 f"{sat[2]*100:+.2f} pt [{sat[4]*100:+.2f}, {sat[5]*100:+.2f}]；"
+                                 f"同期 gold 覆盖率还涨了 {sat[1]*100:+.2f} pt。"
+                                 f"**即多给的槽位仍在提升「gold 在不在上下文里」，但已不再转化为成功率 → "
+                                 f"饱和点 = top_k={sat[0]} 的上一档**。\n")
+                    else:
+                        k_last, d_cov2, d_succ2, _, lo2, hi2 = good[-1]
+                        L.append(f"判据（噪声下限 success 0.9 pt）：最后一个有效档 top_k={k_last} 相对上一档 "
+                                 f"边际 Δsucc = {d_succ2*100:+.2f} pt [{lo2*100:+.2f}, {hi2*100:+.2f}]、"
+                                 f"Δcov {d_cov2*100:+.2f} pt，"
+                                 f"**{'仍未进入噪声区间 → 饱和点尚未测到，需要继续加槽位' if abs(d_succ2) >= 0.009 else '已进入噪声区间'}**。\n")
                 arms_detail = {kk: arm_detail(td, BEST_TAG, kk, seeds) for kk in ktab}
                 failure_section(arm_detail(d, BEST_TAG, None, seeds), arms_detail, L)
-                L.append("## 5. 候选池约束（为什么 k=40 几乎没改动，真实饱和点怎么测）\n")
-                L.append("`app/agent.py:116`：`cands = retrieve(index, q, k=20 if rerank else top_k)` —— "
-                         "开启重排时**每一步**只取 20 条候选，`rerank` 再从中取 `top_k`。"
-                         "因此 `top_k > 20` 只可能通过**跨步累积**增加上下文（`agent.py:180` 会把模型提出的新查询"
-                         "作为下一步检索的 query，候选池 `pool` 跨步合并），而不是靠单步取更多。\n")
+                L.append("## 5. 候选池约束（历史坑：k>20 曾经测不出来）\n")
+                L.append("旧版 `app/agent.py` 把单步候选池写死：`cands = retrieve(index, q, k=20 if rerank else top_k)`。"
+                         "开启重排时**每一步**只取 20 条候选，`rerank` 再从中取 `top_k`，所以 `top_k > 20` 的档位"
+                         "实际拿不到更多候选（只能靠跨步累积）。本版已把它抽成 `--cand-k`（默认保持旧行为，"
+                         "`0` = 该题全部候选，且强制 `cand_k >= top_k`），并用它重跑了 k=30 / k=50 / 全部候选。\n")
                 stats = {k: ctx_stats(td, BEST_TAG, k, seeds) for k in sorted(ktab)}
                 L.append("实测（按原始记录统计，未做 qid 平均）：\n")
                 L.append("| top_k | 任务数 | 平均上下文条数 | 超过 20 条的任务 | 最大条数 |")
                 L.append("|---|---|---|---|---|")
-                L.append(f"| 5 | {len(seeds) * len(base5)} | {nctx5:.3f} | 0 | 5 |")
+                q600 = sorted(set(ktab[rows[0][0]]) & set(base5))
+                L.append(f"| 5 | {len(seeds) * len(q600)} | {nctx5:.3f} | 0 | 5 |")
                 for k, (m_, ov_, mx_, n_) in stats.items():
                     L.append(f"| {k} | {n_} | {m_:.3f} | {ov_}（{ov_/max(n_,1):.1%}） | {mx_} |")
                 L.append("")
-                if len(stats) >= 2:
-                    ks_ = sorted(stats)
-                    a_, b_ = stats[ks_[-2]], stats[ks_[-1]]
-                    L.append(f"即 top_k={ks_[-1]} 相对 top_k={ks_[-2]} 平均只多 **{b_[0]-a_[0]:+.2f} 条**上下文，"
-                             f"且只发生在 {b_[1]/max(b_[3],1):.1%} 的任务上——差异太小，不足以检验"
-                             f"「再加槽位还有没有用」。该档只能当近似重复测量，不能当饱和证据。\n")
-                L.append("- **受影响**：「k=20 之后是否继续涨」未知。")
-                L.append("- **不受影响**：k=5→10→20 三档的实测上下文条数见上表（逐档接近该档位名义值），"
-                         "属有效对照，覆盖率与成功率的因果链成立。")
-                L.append("- **要测真实饱和点**：把该常数提成参数（如 `--cand-k`），并保证 `cand_k >= top_k`、"
-                         "每步都取 `cand_k` 条，重跑 k=30/50；3 档 × 600 题 × 2 seed ≈ ¥6。")
+                L.append("- **k=40 那一档是旧代码跑的**：上下文 20.1 条，与 k=20 的 19.9 条实质相同，"
+                         "所以它在《饱和检查》里被自动标成「无效对照」，不能当饱和证据。")
+                L.append("- **k=30 / k=50 / 全部候选是新代码跑的**（`cand_k` 显式传入、且 >= top_k），"
+                         "上下文条数逐档接近该档名义值，属有效对照。")
                 L.append("- **意外的用处**：k=40 与 k=20 实质是同一配置的两次近似重复运行（上下文 20.1 vs 19.9 条），"
                          "success 0.789 vs 0.792、成本差 3.1%。这部分差异来自服务端非确定性 + 0.2 条上下文，"
                          "可当作**本管线的重复运行噪声量级（≈0.3 pt / 3%）**，用于判断其他 delta 的下限；"
                          "但它只有一对样本，不是严格的重复性实验。\n")
+                # 「把候选全给」那一档给出的是检索环节的天花板：覆盖率已 100%，再加什么都没用。
+                k_full, cov_full, _, succ_full, _, _, nctx_full = rows[-1]
+                if cov_full >= 0.999:
+                    L.append(f"- **检索环节的天花板**：top_k={k_full}（把该题全部候选塞进上下文，平均 "
+                             f"{nctx_full:.1f} 条）时 gold 覆盖率已达 **{cov_full*100:.1f}%**，而 success 只有 "
+                             f"**{succ_full:.3f}**。也就是说**检索做到完美，本管线也只到 0.80**；剩下的约 20% "
+                             f"是 gold 已在上下文里仍答错/引错，属读入之后的推理与引用问题，靠加槽位修不了。\n")
 
     sd_path = Path(args.steps_dir) if args.steps_dir else None
     if sd_path and sd_path.exists():
