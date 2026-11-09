@@ -139,7 +139,10 @@ def class_of(detail: dict) -> str | None:
     cs = [c for c in detail["cls"] if c in CLASSES]
     if not cs:
         return None
-    return max(set(cs), key=cs.count)
+    # 两 seed 分类并列时必须确定性 tie-break：set 的迭代顺序受 PYTHONHASHSEED 影响，
+    # 旧写法（对 set 按 count 取 max）会让同一条记录在不同进程里归到不同类别，
+    # 实测导致「召回未读入」题数在 32/34 之间跳动。按 CLASSES 顺序取靠前者。
+    return max(CLASSES, key=lambda c: (cs.count(c), -CLASSES.index(c)))
 
 
 def ok_of(detail: dict) -> bool:

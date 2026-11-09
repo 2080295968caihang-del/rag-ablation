@@ -210,7 +210,77 @@ def main() -> int:
             tot = sum(len(_json.loads(l)["passages"]) for l in fp.open(encoding="utf-8") if l.strip())
             check(f"{tot:,}" == want, f"DESIGN 中 {fname} 段落总数 {want} 与实测 {tot:,} 一致")
 
-    # ---- 5. 指标口径复算 ----
+    # ---- 5. 跨文档数字一致：关键结论的 Δ 与 CI 必须与 confirm.md 现算值一致 ----
+    cfp = common.ROOT / "eval" / "results_confirm_1500" / "confirm.md"
+    docs = {n: (common.ROOT / n).read_text(encoding="utf-8")
+            for n in ("README.md", "DESIGN.md", "RESUME.md")}
+    if cfp.exists():
+        cfl = cfp.read_text(encoding="utf-8").splitlines()
+
+        def _cell(prefix: str, idx: int):
+            for ln in cfl:
+                if ln.startswith(prefix):
+                    cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+                    return cells[idx] if idx < len(cells) else None
+            return None
+
+        def _nums(cell: str) -> list[float]:
+            return [float(x) for x in re.findall(r"[+-]\d+\.\d+", cell)]
+
+        def _variants(cell: str) -> list[str]:
+            ns = _nums(cell)
+            out = []
+            if len(ns) == 2:
+                out += [f"[{ns[0]:+.2f},{ns[1]:+.2f}]", f"[{ns[0]:+.1f},{ns[1]:+.1f}]"]
+            elif len(ns) == 1:
+                out += [f"{ns[0]:+.2f}", f"{ns[0]:+.1f}"]
+            return out
+
+        def _flat(s: str) -> str:
+            return re.sub(r"\s+", "", s)
+
+        cases = [
+            ("| 全集 | 1500 | success", 5, 6, "阶段2 全集1500 success", ("README.md", "DESIGN.md")),
+            ("| 全集 | 1500 | cit_p", 5, 6, "阶段2 全集1500 cit_p", ("README.md", "DESIGN.md")),
+            ("| **留出集（未参与选组）** | 900 | success", 5, 6, "阶段2 留出900 success",
+             ("README.md", "DESIGN.md", "RESUME.md")),
+            ("| success | 0.6944 | 0.7794 |", 3, 4, "阶段5 留出复现 success", ("README.md", "RESUME.md")),
+        ]
+        for pref, di, ci_i, label, need in cases:
+            dcell, ccell = _cell(pref, di), _cell(pref, ci_i)
+            if dcell is None or ccell is None:
+                check(False, f"confirm.md 缺少 {label} 行，无法比对")
+                continue
+            ds, cs = _variants(dcell), _variants(ccell)
+            for name in need:
+                flat = _flat(docs[name])
+                ok = any(_flat(v) in flat for v in ds) and any(_flat(v) in flat for v in cs)
+                check(ok, f"{name} 引用的 {label} 与 confirm.md 一致（Δ {dcell} / CI {ccell}）")
+
+        # 已作废的旧数字不得再出现在文档里
+        stale = ("[+0.39, +3.78]", "[+0.67, +5.06]", "[+6.2, +10.8]", "69.7%")
+        for name, txt in docs.items():
+            flat = _flat(txt)
+            bad = [s for s in stale if _flat(s) in flat]
+            check(not bad, f"{name} 不含已作废的数字（发现 {bad}）")
+
+        # 阈值敏感性表里 T=0.50 那行必须与 confirm.md §3.2 主表逐位一致
+        c_d, c_ci = _cell("| success | 0.6842 | 0.7892", 3), _cell("| success | 0.6842 | 0.7892", 4)
+        sp = common.ROOT / "eval" / "results_topk" / "sensitivity.md"
+        if sp.exists() and c_d and c_ci:
+            sl = sp.read_text(encoding="utf-8").splitlines()
+            s_row = next((l for l in sl if l.startswith("| 0.50 |")), "")
+            sc = [x.strip() for x in s_row.strip().strip("|").split("|")] if s_row else []
+            check(len(sc) == 6 and sc[3] == c_d and sc[4] == c_ci,
+                  f"sensitivity.md 的 T=0.50 行与 confirm.md §3.2 一致（Δ {c_d} / CI {c_ci}）")
+        else:
+            check(False, "缺少 sensitivity.md 或 confirm.md §3.2 success 行")
+
+        # 失败分类的并列 tie-break 必须确定性（set 迭代顺序受 PYTHONHASHSEED 影响）
+        cps = (common.ROOT / "eval" / "confirm.py").read_text(encoding="utf-8")
+        check("max(set(" not in cps, "confirm.py 分类 tie-break 不依赖 set 迭代顺序")
+
+    # ---- 6. 指标口径复算 ----
     from app import metrics
     check(abs(metrics.f1("yes", "yes") - 1.0) < 1e-9, "f1 自反=1")
     check(abs(metrics.f1("no", "yes")) < 1e-9, "f1 无关=0")
@@ -221,6 +291,13 @@ def main() -> int:
     check(metrics.is_success(0.5, 0.5) == 1 and metrics.is_success(0.49, 1.0) == 0, "success 阈值")
     mean, lo, hi = metrics.bootstrap_ci([1, 1, 1], n=200, seed=0)
     check(lo <= mean <= hi and abs(mean - 1) < 1e-9, "bootstrap 边界")
+
+    # ---- 7. 文档里写的断言条数 == 实际条数（本节每份文档一条，也计入总数）----
+    names = list(docs)
+    n_final = len(OKS) + len(FAILS) + len(names)
+    for name in names:
+        check(f"{n_final} 项" in docs[name] or f"{n_final}/{n_final}" in docs[name],
+              f"{name} 的断言条数记为 {n_final}")
 
     for m_ in OKS:
         print(f"  ok   {m_}")
