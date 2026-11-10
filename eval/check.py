@@ -233,7 +233,7 @@ def main() -> int:
     # ---- 5. 跨文档数字一致：关键结论的 Δ 与 CI 必须与 confirm.md 现算值一致 ----
     cfp = common.ROOT / "eval" / "results_confirm_1500" / "confirm.md"
     docs = {n: (common.ROOT / n).read_text(encoding="utf-8")
-            for n in ("README.md", "DESIGN.md", "RESUME.md")}
+            for n in ("README.md", "DESIGN.md", "PROJECT_SUMMARY.md")}
     if cfp.exists():
         cfl = cfp.read_text(encoding="utf-8").splitlines()
 
@@ -263,8 +263,8 @@ def main() -> int:
             ("| 全集 | 1500 | success", 5, 6, "阶段2 全集1500 success", ("README.md", "DESIGN.md")),
             ("| 全集 | 1500 | cit_p", 5, 6, "阶段2 全集1500 cit_p", ("README.md", "DESIGN.md")),
             ("| **留出集（未参与选组）** | 900 | success", 5, 6, "阶段2 留出900 success",
-             ("README.md", "DESIGN.md", "RESUME.md")),
-            ("| success | 0.6944 | 0.7794 |", 3, 4, "阶段5 留出复现 success", ("README.md", "RESUME.md")),
+             ("README.md", "DESIGN.md", "PROJECT_SUMMARY.md")),
+            ("| success | 0.6944 | 0.7794 |", 3, 4, "阶段5 留出复现 success", ("README.md", "PROJECT_SUMMARY.md")),
         ]
         for pref, di, ci_i, label, need in cases:
             dcell, ccell = _cell(pref, di), _cell(pref, ci_i)

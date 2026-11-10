@@ -365,8 +365,8 @@ def main() -> int:
         f"做 {N_BOOT} 次配对 bootstrap，区间偏保守。_\n"
     )
 
-    # ---- 简历回填 ----
-    lines.append("## 7. 简历回填（6 个字段，附来源）\n")
+    # ---- 结果回填 ----
+    lines.append("## 7. 结果回填（6 个字段，附来源）\n")
     mp = common.RESULTS / "manifest.json"
     total_cost = 0.0
     if mp.exists():
