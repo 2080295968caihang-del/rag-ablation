@@ -28,7 +28,9 @@ HotpotQA（distractor）上量化**检索策略**对 Agent 端到端成功率 / 
   （100 / 600 / 1,500 / holdout 900）；后三份为严格超集，抽样规则与 `seed` 见各 `manifest.json`。
   原始问题与 supporting facts **未做修改**，只做抽样与打散，因此本仓库的指标不能直接与 HotpotQA 官方榜单比较。
 - **嵌入 / 重排模型**：`BAAI/bge-small-en-v1.5`、`Xenova/ms-marco-MiniLM-L-6-v2`（fastembed 默认模型，
-  许可见各自 HF 页面）。首次运行自动下载到 `models/`（152MB，已 gitignore），不入库。
+  许可见各自 HF 页面）。**不随仓库分发**：首次运行需联网下载（默认两份模型合计约 152MB），缓存到 `models/`
+  （已 gitignore，不入库）。因此**新克隆的仓库必须至少联网一次**才能跑检索与重排；下载完成后可断网运行
+  （`HF_HUB_OFFLINE=1` 实测通过）。复现「换模型」两档会额外下载 `bge-base` / `MiniLM-L-12`（约 338MB）。
 - **代码许可**：MIT，见 [`LICENSE`](LICENSE)。
 
 ## 一套命令重跑
@@ -129,11 +131,11 @@ rm STOP && ./.venv/Scripts/python.exe eval/sweep.py --seeds 42,43 --workers 4
 | `api.deepseek.com` | 模型列表 200，`deepseek-chat` 可用 | 直接用 |
 | `deepseek-chat` 实际承接模型 | 响应 `model` 字段回 `deepseek-flash` | 官方价目表已只列 flash/pro，按 Flash off-peak cache-miss 价计（$0.15/$0.60 per 1M，汇率 7.1） |
 | `deepseek-flash` 默认 | **thinking 模式**，`max_tokens` 小会返回空 content | 全程用 `deepseek-chat` 别名（实测非思考，JSON 输出稳定） |
-| `huggingface.co` | 直连超时（10s 无响应） | `HF_ENDPOINT=https://hf-mirror.com`；**但运行期并不需要**，模型已随项目放在 `models/` |
+| `huggingface.co` | 直连超时（10s 无响应） | `HF_ENDPOINT=https://hf-mirror.com`；仅**首次下载**需要，之后运行期不需要（缓存在本地 `models/`） |
 | hf-mirror + Xet | `401 Unauthorized` at `cas-server.xethub.hf.co` | `HF_HUB_DISABLE_XET=1` |
 | PyPI 直连 | 13 分钟只装了 pip | 装依赖走清华镜像 |
 | `load_dataset("hotpot_qa", ...)` | datasets 5.1 报 `Repository id must be 'namespace/name'` | 直接拉 `hotpotqa/hotpot_qa` 的 `distractor/validation` parquet（同一份数据） |
-| BAAI/bge-small-en-v1.5 + Xenova/ms-marco-MiniLM-L-6-v2 | 均下载成功、可推理；断网（`HF_HUB_OFFLINE=1`）亦可 | 缓存固化到 `models/`（152MB，`FASTEMBED_CACHE_PATH` 可覆盖） |
+| BAAI/bge-small-en-v1.5 + Xenova/ms-marco-MiniLM-L-6-v2 | 下载成功、可推理；**下载完成后**断网（`HF_HUB_OFFLINE=1`）亦可 | 缓存在本地 `models/`（152MB，不入库 → 新克隆需先联网一次；`FASTEMBED_CACHE_PATH` 可覆盖） |
 
 ## 目录
 
@@ -189,8 +191,11 @@ models/           嵌入 + 重排模型缓存（gitignore）
    `retrieve(..., k=20 if rerank else top_k)`，开重排时**每一步**只取 20 条候选，`top_k>20` 只能靠跨步累积
    增加上下文（`agent.py:180` 会用模型给的新 query 再检索，候选池跨步合并）。实测 k=20 平均 19.9 条、
    k=40 平均 20.1 条，仅 3.1% 的任务超过 20 条、最多 32 条——差异太小，**不能当饱和证据**。
-   所以「k=20 之后饱和」这句话不成立，只能说 k=20 已到单步候选池上限，**真实饱和点未知**；
-   要测得先把该常数提成参数（`--cand-k`）并保证 `cand_k >= top_k` 再跑。
+   旧代码下「k=20 之后饱和」这句话不成立，因为 k>20 的档根本没拿到更多候选。
+   该常数**已提成参数**（`--cand-k`，强制 `cand_k >= top_k`）并补测：k=30 边际 Δsucc **+0.00 pt** [−1.42,+1.34]、
+   覆盖率仍涨 4.4 pt，而 k=30 成本 +93.9%（k=50 / 全量另有 +1.08 / +0.25 pt，均不显著）。
+   因此结论只能写成「**本实验中 k=20→30 未观察到显著成功率提升**」——这是本管线候选池配置 + 固定模型下的观测，
+   不是「k>20 普遍无用」的普适结论。
 10. **k=20 的 success 0.789 仍低于全 gold 时的 0.825–0.860**，因为 93.6% 是平均覆盖率，仍有一部分题缺 gold。
     差距（约 3.5–7 pt）就是剩余检索损失 + 引用错配，不是"槽位还不够"。
 11. **多步对照有一个设计副作用**：`max_steps=1` 时若模型仍要求追加检索，循环会退出且答案为空——

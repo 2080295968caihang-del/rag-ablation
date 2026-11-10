@@ -1,6 +1,6 @@
 # 项目成果摘要（三种长度，数字均可复算）
 
-> 事实来源：`E:/rag-ablation/README.md`（commit `3e6d0e7`）、`eval/results_600/summary.md`、
+> 事实来源：`README.md`（2026-11-09 快照）、`eval/results_600/summary.md`、
 > `eval/results_confirm_1500/confirm.md`、`eval/check.py`（91 项断言全绿）。
 > 所有数字可由 `eval/check.py` + `manifest.json` 复算。
 

@@ -4,7 +4,7 @@
 > 判定规则、成本、以及结果出来后对外结论该怎么改**。审核通过后再动 `PROJECT_SUMMARY.md` 与对外文本。
 >
 > 当前日期 2026-11-09。基线数字全部来自 `README.md` / `DESIGN.md` / `eval/results_confirm_1500/confirm.md`
-> （commit `405dbfd`，当前 `check.py` 91/91 全绿）。**本文件里的成本都是按实测单价推算，不是拍脑袋。**
+> （commit `13da5b0`，当前 `check.py` 91/91 全绿）。**本文件里的成本都是按实测单价推算，不是拍脑袋。**
 
 ---
 

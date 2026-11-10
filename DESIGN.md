@@ -172,5 +172,5 @@ cp .env.example .env            # 填 DEEPSEEK_API_KEY（35 位，sk- 开头，�
 ./.venv/Scripts/python.exe eval/check.py                    # 91 项断言
 ```
 
-全量重跑命令见 `README.md`「一套命令重跑」。模型缓存已固化在 `models/`（152MB，gitignore），
-运行期**不需要联网下载模型**；`FASTEMBED_CACHE_PATH` 可覆盖位置。
+全量重跑命令见 `README.md`「一套命令重跑」。模型缓存**不入库**（`models/` 已 gitignore，默认两份约 152MB），
+**新克隆的仓库首次运行必须联网下载一次**；下载完成后运行期不再需要联网，`FASTEMBED_CACHE_PATH` 可覆盖位置。
