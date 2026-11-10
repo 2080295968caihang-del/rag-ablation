@@ -4,6 +4,7 @@ HotpotQA（distractor）上量化**检索策略**对 Agent 端到端成功率 / 
 
 > 数据构造、每个参数的取值理由、技术栈选型与被排除的替代方案：见 [`DESIGN.md`](DESIGN.md)。
 > 未验证项、实验设计与「结果出来后对外结论怎么改」：见 [`EXPERIMENT_PLAN.md`](EXPERIMENT_PLAN.md)。
+> 三种长度的结论摘要（一句话 / 精简 / 完整）与设计决策问答：见 [`PROJECT_SUMMARY.md`](PROJECT_SUMMARY.md)。
 
 六阶段，共 **30,600 次 Agent 任务、总成本 ¥34.11**（已去重：阶段 2 的前 600 题是阶段 1 的复制，只计一次）：
 
