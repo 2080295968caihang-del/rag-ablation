@@ -19,14 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-Third-party data and models referenced by this repository:
-
-- HotpotQA (distractor setting) - https://hotpotqa.github.io/ - CC BY-SA 4.0.
-  Only sampling and shuffling are applied; questions and supporting facts are
-  unmodified.
-- BAAI/bge-small-en-v1.5 and Xenova/ms-marco-MiniLM-L-6-v2 (via fastembed) -
-  see their model cards on Hugging Face for the applicable licenses. Models are
-  downloaded at runtime and are not redistributed here.
